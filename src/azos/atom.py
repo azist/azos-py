@@ -22,14 +22,32 @@ __atoms = { }
 def __validate_char(c: int) -> bool:
     return (c in VALID_CHAR_CODES)
 
-def encode(sval: str):
+def encode(astr: str) -> int:
     """Encodes a string value as an atom ulong
     
-    Documentation paragraph.
+    This function does not maintain any caches and is relatively slow, this is because
+    you should NOT encode strings into atoms in a loop or regular basis.
+
+    If the value is invalid, then AzosError is raised.
+    Atom values must have 1 to 8 characters, only from the following set: ['_','-','0'..'9','A'..'Z','a'..'z'].
+    Empty or blank strings are treated az Atom.Zero (0 int)
     """
     
-    print("Encoding: " + str)
-    return 0
+    if astr == None or astr == "":
+        return 0
+    
+    if len(astr) > MAX_ATOM_LENGTH:
+        raise AzosError(f"Invalid atom string length is over {MAX_ATOM_LENGTH}", "atom", f"encode(`{astr}`)")
+
+    ax = 0
+    i = 0
+    for one in astr:
+        c = ord(one)
+        if not __validate_char(c):
+            raise AzosError(f"Invalid atom char #{c} / `{chr(c)}`", "atom", f"encode({astr})")
+        ax = ax | (c << (i * 8))
+        i = i + 1
+    return ax
 
 def decode(id: int) -> str:
     """Decodes an ulong int atom value back to string
@@ -64,14 +82,16 @@ def decode(id: int) -> str:
 
 
 
-if __name__ == "__main__":
-    #for one in VALID_CHAR_CODES:
-    #   print(f"{one} - {chr(one)}")
-    print(f"Decoding atom from int: {decode(1634560356)}") # dima
-    print(f"Decoding atom from int: {decode(1634560358)}") # fima
-    print(f"Decoding atom from int: {decode(1634560356)}") # dima
-    print(f"Decoding atom from int: {decode(1634560356)}") # dima
-    print(f"Decoding atom from int: {decode(1634560356)}") # dima
-    print(f"Decoding atom from int: {decode(1634560356)}") # dima
-    print(f"Decoding atom from int: {decode(7956003944985229683 )}") # syslogin
-    print(f"Decoding atom from int: {decode(1634560358)}") # fima
+# if __name__ == "__main__":
+#     #for one in VALID_CHAR_CODES:
+#     #   print(f"{one} - {chr(one)}")
+#     print(f"Decoding atom from int: {decode(1634560356)}") # dima
+#     print(f"Decoding atom from int: {decode(1634560358)}") # fima
+#     print(f"Decoding atom from int: {decode(1634560356)}") # dima
+#     print(f"Decoding atom from int: {decode(1634560356)}") # dima
+#     print(f"Decoding atom from int: {decode(1634560356)}") # dima
+#     print(f"Decoding atom from int: {decode(1634560356)}") # dima
+#     print(f"Decoding atom from int: {decode(7956003944985229683 )}") # syslogin
+#     print(f"Decoding atom from int: {decode(1634560358)}") # fima
+
+#     print(f"Encoding atom from string: {encode('fima')}") # fima
