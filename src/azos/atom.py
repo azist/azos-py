@@ -8,12 +8,20 @@ Copyright (C) 20023 Azist, MIT License
 from exceptions import *
 
 MAX_ATOM_LENGTH = 8
-VALID_CHAR_CODES = set(
-                        list(range(ord('0'), ord('9') + 1)) + 
-                        [ord('_'), ord('-')] +
-                        list(range(ord('A'), ord('Z') + 1)) + 
-                        list(range(ord('a'), ord('z') + 1)) 
-                   ) #set
+# VALID_CHAR_CODES = set(
+#                         list(range(ord('0'), ord('9') + 1)) + 
+#                         [ord('_'), ord('-')] +
+#                         list(range(ord('A'), ord('Z') + 1)) + 
+#                         list(range(ord('a'), ord('z') + 1)) 
+#                    ) #set
+
+VALID_CHAR_CODES = set([ 
+    *range(ord('0'), ord('9') + 1), 
+    ord('_'), 
+    ord('-'), 
+    *range(ord('A'), ord('Z') + 1), 
+    *range(ord('a'), ord('z') + 1) 
+    ])
 
 
 __atoms = { }
@@ -64,8 +72,8 @@ def decode(id: int) -> str:
 
 
 if __name__ == "__main__":
-   # for one in VALID_CHAR_CODES:
-   #    print(f"{one} - {chr(one)}")
+    #for one in VALID_CHAR_CODES:
+    #   print(f"{one} - {chr(one)}")
     print(f"Decoding atom from int: {decode(1634560356)}") # dima
     print(f"Decoding atom from int: {decode(1634560358)}") # fima
     print(f"Decoding atom from int: {decode(1634560356)}") # dima
