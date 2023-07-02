@@ -44,7 +44,7 @@ def encode(astr: str) -> int:
     for one in astr:
         c = ord(one)
         if not __validate_char(c):
-            raise AzosError(f"Invalid atom char #{c} / `{chr(c)}`", "atom", f"encode({astr})")
+            raise AzosError(f"Invalid atom char #{c} / `{chr(c)}`", "atom", f"encode(`{astr}`)")
         ax = ax | (c << (i * 8))
         i = i + 1
     return ax
