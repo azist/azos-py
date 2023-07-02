@@ -55,7 +55,7 @@ def decode(id: int) -> str:
             if c==0: 
                 break
             if not __validate_char(c):
-                raise AzosError(f"Invalid atom char #{c} / `{chr(c)}`", "atom", "decode({id})")
+                raise AzosError(f"Invalid atom char #{c} / `{chr(c)}`", "atom", f"decode({id})")
             result = result + chr(c)
             ax = ax >> 8
 
