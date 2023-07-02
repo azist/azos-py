@@ -8,13 +8,6 @@ Copyright (C) 20023 Azist, MIT License
 from exceptions import *
 
 MAX_ATOM_LENGTH = 8
-# VALID_CHAR_CODES = set(
-#                         list(range(ord('0'), ord('9') + 1)) + 
-#                         [ord('_'), ord('-')] +
-#                         list(range(ord('A'), ord('Z') + 1)) + 
-#                         list(range(ord('a'), ord('z') + 1)) 
-#                    ) #set
-
 VALID_CHAR_CODES = set([ 
     *range(ord('0'), ord('9') + 1), 
     ord('_'), 
