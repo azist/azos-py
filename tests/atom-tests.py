@@ -46,6 +46,21 @@ class AtomTests(unittest.TestCase):
         else:
             self.fail("Missing AzosError for invalid atom int")
 
+    def test_encode_01(self):
+        self.assertEqual(28821928557109857, atom.encode("abc-def"));
+
+    def test_encode_02(self):
+        self.assertEqual(0, atom.encode(None));
+        self.assertEqual(0, atom.encode(""));
+
+    def test_encode_03(self):
+        try: 
+            atom.encode("too long of a string") 
+        except atom.AzosError as error:
+             self.assertEqual("encode(`too long of a string`)", error.frm); # error frm field should contain method(arg) name
+        else:
+            self.fail("Missing AzosError for invalid atom int")
+
 
 if __name__ == '__main__':
     unittest.main()
