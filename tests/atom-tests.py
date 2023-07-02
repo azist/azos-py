@@ -1,5 +1,5 @@
-import sys
 import unittest
+import sys
 
 sys.path.append("../src/azos")
 import atom
@@ -47,5 +47,5 @@ class AtomTests(unittest.TestCase):
             self.fail("Missing AzosError for invalid atom int")
 
 
-
-unittest.main()
+if __name__ == '__main__':
+    unittest.main()
