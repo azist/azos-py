@@ -5,7 +5,8 @@ Copyright (C) 20023 Azist, MIT License
 
 """
 
-from exceptions import *
+from exceptions import AzosError
+
 
 MAX_ATOM_LENGTH = 8
 VALID_CHAR_CODES = set([ 
@@ -82,16 +83,16 @@ def decode(id: int) -> str:
 
 
 
-# if __name__ == "__main__":
-#     #for one in VALID_CHAR_CODES:
-#     #   print(f"{one} - {chr(one)}")
-#     print(f"Decoding atom from int: {decode(1634560356)}") # dima
-#     print(f"Decoding atom from int: {decode(1634560358)}") # fima
-#     print(f"Decoding atom from int: {decode(1634560356)}") # dima
-#     print(f"Decoding atom from int: {decode(1634560356)}") # dima
-#     print(f"Decoding atom from int: {decode(1634560356)}") # dima
-#     print(f"Decoding atom from int: {decode(1634560356)}") # dima
-#     print(f"Decoding atom from int: {decode(7956003944985229683 )}") # syslogin
-#     print(f"Decoding atom from int: {decode(1634560358)}") # fima
+if __name__ == "__main__":
+    #for one in VALID_CHAR_CODES:
+    #   print(f"{one} - {chr(one)}")
+    print(f"Decoding atom from int: {decode(1634560356)}") # dima
+    print(f"Decoding atom from int: {decode(1634560358)}") # fima
+    print(f"Decoding atom from int: {decode(1634560356)}") # dima
+    print(f"Decoding atom from int: {decode(1634560356)}") # dima
+    print(f"Decoding atom from int: {decode(1634560356)}") # dima
+    print(f"Decoding atom from int: {decode(1634560356)}") # dima
+    print(f"Decoding atom from int: {decode(7956003944985229683 )}") # syslogin
+    print(f"Decoding atom from int: {decode(1634560358)}") # fima
 
-#     print(f"Encoding atom from string: {encode('fima')}") # fima
+    print(f"Encoding atom from string: {encode('fima')}") # fima

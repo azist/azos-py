@@ -1,8 +1,9 @@
 import unittest
-import sys
+import azcontext
 
-sys.path.append("../src/azos")
 import atom
+from exceptions import AzosError
+
 
 class AtomTests(unittest.TestCase):
 
@@ -41,7 +42,7 @@ class AtomTests(unittest.TestCase):
     def test_decode_09(self):
         try: 
             atom.decode(937) #invalid atom value
-        except atom.AzosError as error:
+        except AzosError as error:
              self.assertEqual("decode(937)", error.frm); # error frm field should contain method(arg) name
         else:
             self.fail("Missing AzosError for invalid atom int")
@@ -56,7 +57,7 @@ class AtomTests(unittest.TestCase):
     def test_encode_03(self):
         try: 
             atom.encode("too long of a string") 
-        except atom.AzosError as error:
+        except AzosError as error:
             self.assertEqual("encode(`too long of a string`)", error.frm); 
         else:
             self.fail("Missing AzosError for invalid atom string length")
@@ -64,7 +65,7 @@ class AtomTests(unittest.TestCase):
     def test_encode_04(self):
        try: 
            atom.encode("^ba d") 
-       except atom.AzosError as error:
+       except AzosError as error:
            self.assertEqual("encode(`^ba d`)", error.frm); 
        else:
            self.fail("Missing AzosError for invalid atom string chars")
