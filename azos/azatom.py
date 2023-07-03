@@ -5,7 +5,7 @@ Copyright (C) 20023 Azist, MIT License
 
 """
 
-from exceptions import AzosError
+from azexceptions import AzosError
 
 
 MAX_ATOM_LENGTH = 8
