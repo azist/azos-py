@@ -9,7 +9,7 @@ from azexceptions import AzosError
 
 
 MAX_ATOM_LENGTH = 8
-VALID_CHAR_CODES = set([ 
+VALID_CHAR_CODES = frozenset([ 
     *range(ord('0'), ord('9') + 1), 
     ord('_'), 
     ord('-'), 
