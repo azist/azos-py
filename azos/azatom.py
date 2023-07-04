@@ -81,18 +81,47 @@ def decode(id: int) -> str:
     __atoms[id] = result
     return result
 
+class Atom:
+    """Encapsulates an Atom value which is up to 8 ASCII only characters coded as an int
+
+    """
+    def __init__(self, val: int | str) -> None:
+        if val == None or type(val) == str:
+            self._id = encode(val)
+        else:
+            self._id = val
+
+    def __str__(self):
+        return decode(self._id)
+    
+    def __repr__(self):
+        return f"Atom(#{self._id}, `{decode(self._id)}`)"
+    
+    def __eq__(self, other: object) -> bool:
+        return self._id == other._id
+    
+    def __hash__(self):
+        return hash(self._id)
+    
+    id = property(fget = lambda self: self._id, doc = "Gets Atom id: ulong")
 
 
-# if __name__ == "__main__":
-#     #for one in VALID_CHAR_CODES:
-#     #   print(f"{one} - {chr(one)}")
-#     print(f"Decoding atom from int: {decode(1634560356)}") # dima
-#     print(f"Decoding atom from int: {decode(1634560358)}") # fima
-#     print(f"Decoding atom from int: {decode(1634560356)}") # dima
-#     print(f"Decoding atom from int: {decode(1634560356)}") # dima
-#     print(f"Decoding atom from int: {decode(1634560356)}") # dima
-#     print(f"Decoding atom from int: {decode(1634560356)}") # dima
-#     print(f"Decoding atom from int: {decode(7956003944985229683 )}") # syslogin
-#     print(f"Decoding atom from int: {decode(1634560358)}") # fima
 
-#     print(f"Encoding atom from string: {encode('fima')}") # fima
+if __name__ == "__main__":
+    #for one in VALID_CHAR_CODES:
+    #   print(f"{one} - {chr(one)}")
+    print(f"Decoding atom from int: {decode(1634560356)}") # dima
+    print(f"Decoding atom from int: {decode(1634560358)}") # fima
+    print(f"Decoding atom from int: {decode(1634560356)}") # dima
+    print(f"Decoding atom from int: {decode(7956003944985229683 )}") # syslogin
+    print(f"Decoding atom from int: {decode(1634560358)}") # fima
+    print(f"Encoding atom from string: {encode('fima')}") # fima
+    print()
+    a = Atom(1634560356)
+    print(a)
+    a = Atom("syslogin")
+    print(repr(a))
+    print(a.id)
+    b = Atom("syslogin")
+    print(a==b, a is b, hash(a), hash(b))
+

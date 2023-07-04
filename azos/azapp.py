@@ -2,8 +2,8 @@
 
 Copyright (C) 20023 Azist, MIT License
 
-
 """
+
 import uuid
 import json
 import azatom
@@ -11,11 +11,6 @@ from datetime import datetime
 from azexceptions import AzosError
 
 __instance = None
-
-def __loadcfg(cfg: str) -> object:
-    # todo exception handling
-    dict = json.loads(str)
-    return dict
 
 class AzosApp:
     def __init__(self, config) -> None:
@@ -25,8 +20,20 @@ class AzosApp:
         __instance = self
         self.instance_uuid = uuid.uuid4()
         self.start_utc = datetime.utcnow()
-        self.config_root = __loadcfg(config)
 
+        if config == None:
+            config = { }
+
+        self.config_root = config
+        # ---------------------------------------------------
+        self.id          = azatom.Atom(config.get("id"))
+        self.origin      = azatom.Atom(config.get("origin"))
+        self.description = config.get("description") or ""
+        self.copyright   = config.get("copyright") or ""
+        self.environment = config.get("environment-name") or "dev"
+        # ---------------------------------------------------
 
     def __del__(self):
         __instance = None
+
+    
