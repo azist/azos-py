@@ -65,8 +65,8 @@ def decode(id: int) -> str:
         return ""
 
     result = __atoms.get(id) #check cache
-    ax = id
     if result == None:
+        ax = id
         result = ""
         ### print(f"Atom {id} is not in cache")
         for i in range(0, 8):
