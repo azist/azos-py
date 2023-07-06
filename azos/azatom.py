@@ -63,6 +63,9 @@ def decode(id: int) -> str:
     """
     if id == 0:
         return ""
+    
+    if id.bit_length() > 64:
+        raise AzosError(f"Invalid atom id too big", "atom", f"decode({id})")
 
     result = __atoms.get(id) #check cache
     if result == None:
@@ -80,6 +83,24 @@ def decode(id: int) -> str:
 
     __atoms[id] = result
     return result
+
+def is_valid(id: int) -> bool:
+    """Returns true if the supplied integer represents a valid Atom id
+    
+    """
+    if id == 0:
+        return True
+    
+    if id.bit_length() > 64:
+        return False
+
+    ax = id
+    for i in range(0, 8):
+        c = ax & 0xff
+        if not __validate_char(c):
+            return False
+        ax = ax >> 8
+    return True
 
 class Atom:
     """Encapsulates an Atom value which is up to 8 ASCII only characters coded as an int
@@ -105,6 +126,7 @@ class Atom:
     
     id = property(fget = lambda self: self._id, doc = "Gets Atom id: ulong")
 
+    valid = property(fget = lambda self: is_valid(self._id), doc = "Returns true if the id value is valid")
 
 
 if __name__ == "__main__":
