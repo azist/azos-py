@@ -1,4 +1,5 @@
 import unittest
+import json
 import azcontext
 
 import azatom
@@ -47,6 +48,14 @@ class AtomTests(unittest.TestCase):
         else:
             self.fail("Missing AzosError for invalid azatom int")
 
+    def test_decode_10(self):
+        try: 
+            azatom.decode(18446744073709551619) #invalid azatom value 2^64 = 18446744073709551616
+        except AzosError as error:
+             self.assertEqual("decode(18446744073709551619)", error.frm)
+        else:
+            self.fail("Missing AzosError for invalid azatom int")        
+
     def test_encode_01(self):
         self.assertEqual(28821928557109857, azatom.encode("abc-def"));
 
@@ -70,6 +79,56 @@ class AtomTests(unittest.TestCase):
        else:
            self.fail("Missing AzosError for invalid azatom string chars")
 
+    def test_class_01(self):
+        a = azatom.Atom("a")
+        self.assertEqual(97, a.id)
+        self.assertEqual("a", str(a))
+        self.assertEqual("Atom(#97, `a`)", repr(a))
+
+    def test_class_02(self):
+        a = azatom.Atom(97)
+        self.assertEqual(97, a.id)
+        self.assertEqual("a", str(a))
+        self.assertEqual("Atom(#97, `a`)", repr(a))
+
+    def test_class_03(self):
+        a = azatom.Atom("a")
+        b = azatom.Atom("a")
+        self.assertFalse(a is b);
+        self.assertTrue(a == b);
+        self.assertEqual(hash(a), hash(b))
+
+    def test_class_04(self):
+        a = azatom.Atom("a")
+        b = a
+        self.assertTrue(a is b);
+        self.assertTrue(a == b);
+        self.assertEqual(hash(a), hash(b))
+
+    def test_class_05(self):
+        a = azatom.Atom("a")
+        b = azatom.Atom("b")
+        self.assertFalse(a is b);
+        self.assertFalse(a == b);
+        self.assertNotEqual(hash(a), hash(b))
+
+    def test_class_06(self):
+        a = azatom.Atom(8825501086245354106)
+        self.assertTrue(a.valid);
+    
+    def test_class_07(self):
+        a = azatom.Atom(8825501086245354109)
+        self.assertFalse(a.valid);
+
+    def test_is_valid_06(self):
+        a = 8825501086245354106
+        self.assertTrue(azatom.is_valid(a))
+    
+    def test_is_valid_07(self):
+        a = 8825501086245354109
+        self.assertFalse(azatom.is_valid(a))
+        
+        
 
 if __name__ == '__main__':
     unittest.main()
