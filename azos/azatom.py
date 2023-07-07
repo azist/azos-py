@@ -116,7 +116,10 @@ class Atom:
         return decode(self._id)
     
     def __repr__(self):
-        return f"Atom(#{self._id}, `{decode(self._id)}`)"
+        if self._id != 0:
+            return f"Atom(#{self._id}, `{decode(self._id)}`)"
+        else:
+            return "Atom.ZERO"
     
     def __eq__(self, other: object) -> bool:
         return self._id == other._id
