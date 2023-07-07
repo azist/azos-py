@@ -116,7 +116,10 @@ class Atom:
         return decode(self._id)
     
     def __repr__(self):
-        return f"Atom(#{self._id}, `{decode(self._id)}`)"
+        if self._id != 0:
+            return f"Atom(#{self._id}, `{decode(self._id)}`)"
+        else:
+            return "Atom.ZERO"
     
     def __eq__(self, other: object) -> bool:
         return self._id == other._id
@@ -125,6 +128,8 @@ class Atom:
         return hash(self._id)
     
     id = property(fget = lambda self: self._id, doc = "Gets Atom id: ulong")
+
+    is_zero = property(fget = lambda self: self._id == 0, doc = "True if id=0")
 
     valid = property(fget = lambda self: is_valid(self._id), doc = "Returns true if the id value is valid")
 

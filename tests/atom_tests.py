@@ -1,5 +1,4 @@
 import unittest
-import json
 import azcontext
 
 import azatom
@@ -119,6 +118,14 @@ class AtomTests(unittest.TestCase):
     def test_class_07(self):
         a = azatom.Atom(8825501086245354109)
         self.assertFalse(a.valid);
+    
+    def test_class_08(self):
+        a = azatom.Atom(0)
+        self.assertEqual(0, a.id)
+        self.assertTrue(a.valid)
+        self.assertTrue(a.is_zero)
+        self.assertEqual("", str(a))
+        self.assertEqual("Atom.ZERO", repr(a))
 
     def test_is_valid_06(self):
         a = 8825501086245354106
