@@ -126,6 +126,8 @@ class Atom:
     
     id = property(fget = lambda self: self._id, doc = "Gets Atom id: ulong")
 
+    is_zero = property(fget = lambda self: self._id == 0, doc = "True if id=0")
+
     valid = property(fget = lambda self: is_valid(self._id), doc = "Returns true if the id value is valid")
 
 
