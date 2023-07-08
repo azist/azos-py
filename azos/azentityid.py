@@ -5,6 +5,8 @@ Copyright (C) 20023 Azist, MIT License
 
 """
 
+import json
+
 from azexceptions import AzosError
 from azatom import Atom
 
@@ -46,7 +48,7 @@ class EntityId:
                self._address == other.address
     
     def __hash__(self):
-        return hash(self._id)
+        return hash(self._system) ^ hash(self._type) ^ hash(self._schema) ^ hash(self._address)
     
     def get_value(self) -> str:
         if self._type.is_zero:
@@ -56,15 +58,35 @@ class EntityId:
         
         return f"{self._type}{SCHEMA_DIV}{self._schema}{TP_PREFIX}{self._system}{SYS_PREFIX}{self._address}"
 
+    def get_composite_address(self) -> map:
+        """
+        For address which starts with '{' and ends with '}' returns a parsed JSON as map.
+
+        Returns None if address is not a composite address
+        """
+        if not self.is_composite_address:
+            return None
+        try:
+            return json.loads(self._address)
+        except Exception as cause:
+            raise AzosError("EntityId contains invalid composite address", "entityid", f"get_composite_address()") from cause
+
+
     system  = property(fget = lambda self: self._system,  doc = "Gets EntityId.System: Atom")
     type    = property(fget = lambda self: self._type,    doc = "Gets EntityId.Type: Atom")
     schema  = property(fget = lambda self: self._schema,  doc = "Gets EntityId.Schema: Atom")
     address = property(fget = lambda self: self._address, doc = "Gets EntityId.Address: str")
+    is_composite_address = property(
+        fget = lambda self: self._address.startswith("{") and self._address.endswith("}"),
+        doc = "Returns True when address is assigned as composite JSON object starting with '{' and ending with '}' without any leading or trailing spaces"
+    )
 
     value = property(fget = get_value, doc = "Returns EntityId string value")
 
 
 if __name__ == "__main__":
-    a = EntityId(Atom("sys"), Atom("tp"), Atom("sch"), "my-address-123")
-    print(a)
+    a = EntityId(Atom("sys"), Atom("tp"), Atom("sch"), "o{\"a\": 1}")
+    print(hash(a))
+    print(a.is_composite_address)
+    print(a.get_composite_address())
     
