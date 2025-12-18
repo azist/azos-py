@@ -100,13 +100,13 @@ class EntityId:
         
         return f"{self._type}{SCHEMA_DIV}{self._schema}{TP_PREFIX}{self._system}{SYS_PREFIX}{self._address}"
     
-    def get_components(self) -> str:
+    def get_components(self) -> tuple:
         """Returns components of entity id a s a tuple of (sys,type,schema,address)
 
         """
         return (self._system, self._type, self._schema, self._address)
 
-    def get_composite_address(self) -> map:
+    def get_composite_address(self) -> map | None:
         """
         For address which starts with '{' and ends with '}' returns a parsed JSON as map.
 

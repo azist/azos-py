@@ -10,7 +10,7 @@ authors = [
 ]
 description = "Provides Azos base types and services functionality for Python apps"
 readme = "README.md"
-requires-python = ">=3.7"
+requires-python = ">=3.11"
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
