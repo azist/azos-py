@@ -10,5 +10,8 @@
     "python.testing.unittestEnabled": true,
     "python.analysis.extraPaths": [
         "./azos"
+    ],
+    "cSpell.words": [
+        "setuptools"
     ]
 }
