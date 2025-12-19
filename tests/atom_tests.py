@@ -1,6 +1,5 @@
 import unittest
 import azcontext
-
 import azatom
 from azexceptions import AzosError
 
