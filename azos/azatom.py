@@ -9,12 +9,12 @@ from azexceptions import AzosError
 
 
 MAX_ATOM_LENGTH = 8
-VALID_CHAR_CODES = frozenset([ 
-    *range(ord('0'), ord('9') + 1), 
-    ord('_'), 
-    ord('-'), 
-    *range(ord('A'), ord('Z') + 1), 
-    *range(ord('a'), ord('z') + 1) 
+VALID_CHAR_CODES = frozenset([
+    *range(ord('0'), ord('9') + 1),
+    ord('_'),
+    ord('-'),
+    *range(ord('A'), ord('Z') + 1),
+    *range(ord('a'), ord('z') + 1)
     ])
 
 
@@ -23,9 +23,9 @@ __atoms = { }
 def __validate_char(c: int) -> bool:
     return (c in VALID_CHAR_CODES)
 
-def encode(astr: str) -> int:
+def encode(astr: str | None) -> int:
     """Encodes a string value as an atom ulong
-    
+
     This function does not maintain any caches and is relatively slow, this is because
     you should NOT encode strings into atoms in a loop or regular basis.
 
@@ -33,10 +33,10 @@ def encode(astr: str) -> int:
     Atom values must have 1 to 8 characters, only from the following set: ['_','-','0'..'9','A'..'Z','a'..'z'].
     Empty or blank strings are treated az Atom.Zero (0 int)
     """
-    
+
     if astr == None or astr == "":
         return 0
-    
+
     if len(astr) > MAX_ATOM_LENGTH:
         raise AzosError(f"Invalid atom string length is over {MAX_ATOM_LENGTH}", "atom", f"encode(`{astr}`)")
 
@@ -52,7 +52,7 @@ def encode(astr: str) -> int:
 
 def decode(id: int) -> str:
     """Decodes an ulong int atom value back to string
-    
+
     The function maintains internal static cache. If the value is
     not in cache it gets converted to string and cached.
 
@@ -63,7 +63,7 @@ def decode(id: int) -> str:
     """
     if id == 0:
         return ""
-    
+
     if id.bit_length() > 64:
         raise AzosError(f"Invalid atom id too big", "atom", f"decode({id})")
 
@@ -74,7 +74,7 @@ def decode(id: int) -> str:
         ### print(f"Atom {id} is not in cache")
         for i in range(0, 8):
             c = ax & 0xff
-            if c==0: 
+            if c==0:
                 break
             if not __validate_char(c):
                 raise AzosError(f"Invalid atom char #{c} / `{chr(c)}`", "atom", f"decode({id})")
@@ -86,11 +86,11 @@ def decode(id: int) -> str:
 
 def is_valid(id: int) -> bool:
     """Returns true if the supplied integer represents a valid Atom id
-    
+
     """
     if id == 0:
         return True
-    
+
     if id.bit_length() > 64:
         return False
 
@@ -110,28 +110,37 @@ class Atom:
         if val == None or type(val) == str:
             self._id = encode(val)
         else:
-            self._id = val
+            self._id = int(val)
 
     def __str__(self):
         return decode(self._id)
-    
+
     def __repr__(self):
         if self._id != 0:
             return f"Atom(#{self._id}, `{decode(self._id)}`)"
         else:
             return "Atom.ZERO"
-    
+
     def __eq__(self, other: object) -> bool:
-        return self._id == other._id
-    
+        return self._id == other._id if isinstance(other, Atom) else False
+
     def __hash__(self):
         return hash(self._id)
-    
-    id = property(fget = lambda self: self._id, doc = "Gets Atom id: ulong")
 
-    is_zero = property(fget = lambda self: self._id == 0, doc = "True if id=0")
+    @property
+    def id(self) -> int:
+        """Returns an integer ID of this atom"""
+        return self._id
 
-    valid = property(fget = lambda self: is_valid(self._id), doc = "Returns true if the id value is valid")
+    @property
+    def is_zero(self) -> bool:
+        """True if there is no string value and id=0"""
+        return self._id == 0
+
+    @property
+    def valid(self) -> bool:
+        """Returns true if the id value is valid"""
+        return is_valid(self._id)
 
 
 if __name__ == "__main__":
