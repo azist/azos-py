@@ -2,16 +2,14 @@
 
 Copyright (C) 20023 Azist, MIT License
 
-
 """
-
 __all__ = ["AzosError"]
 
 class AzosError(Exception):
     """Exception thrown by Azos interop code
 
     Attributes:
-        topic -- exception topic string 
+        topic -- exception topic string
         frm -- string specifier of the "from" place in code/system/component
         src -- error/source code (int)
         message -- explanation of the error
