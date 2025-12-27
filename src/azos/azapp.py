@@ -5,7 +5,6 @@ Copyright (C) 20023 Azist, MIT License
 """
 
 import uuid
-import json
 import azatom
 from datetime import datetime
 from azexceptions import AzosError
@@ -16,7 +15,7 @@ class AzosApp:
     def __init__(self, config) -> None:
         if __instance != None:
             raise AzosError(f"App already initialized", "app", "_init_")
-        
+
         __instance = self
         self.instance_uuid = uuid.uuid4()
         self.start_utc = datetime.utcnow()
@@ -36,4 +35,4 @@ class AzosApp:
     def __del__(self):
         __instance = None
 
-    
+
