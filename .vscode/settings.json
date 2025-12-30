@@ -12,6 +12,7 @@
         "./azos"
     ],
     "cSpell.words": [
+        "isdefault",
         "setuptools"
     ],
     "files.eol": "\n",
