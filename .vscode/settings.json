@@ -13,11 +13,15 @@
     ],
     "cSpell.words": [
         "isdefault",
+        "oplog",
         "setuptools"
     ],
     "files.eol": "\n",
     "workbench.tree.indent": 25,
     "workbench.tree.renderIndentGuides": "always",
+    "workbench.colorCustomizations": {
+         "editorRuler.foreground": "#20a0ff40"
+    },
     "editor.mouseWheelZoom": true,
-
+    "editor.rulers": [120]
 }

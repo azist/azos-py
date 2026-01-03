@@ -150,5 +150,5 @@ class Application:
         return self._app
 
 
-# ALlocate default instance
+# Allocate default instance
 Application(DEFAULT_APP_ID, __file__)
