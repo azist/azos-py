@@ -1,6 +1,6 @@
 """
 Azos Open Telemetry Module
-Copyright (C) 20026 Azist, MIT License
+Copyright (C) 2026 Azist, MIT License
 """
 import log
 

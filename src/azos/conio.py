@@ -1,6 +1,6 @@
 """
 Azos Console I/O Module
-Copyright (C) 20026 Azist, MIT License
+Copyright (C) 2026 Azist, MIT License
 """
 
 # ANSI Escape Codes Class

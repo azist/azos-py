@@ -1,5 +1,5 @@
 """Provides structured logging support
-Copyright (C) 20025 Azist, MIT License
+Copyright (C) 2025 Azist, MIT License
 
 """
 import sys
@@ -178,6 +178,8 @@ class AzLogRecordJsonFormatter(AzLogRecordFormatter):
         """
         return json.dumps(log_record, separators=(',', ':'))
 
+
+# ++++++++++++++++++++++ TYT ostanovilsya
 
 class AzLogStrand(logging.LoggerAdapter):
     """

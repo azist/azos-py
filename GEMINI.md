@@ -1,5 +1,10 @@
 # Azos Python (azos-py)
 
+> [!WARNING] You may NEVER EVER make any file system changes in any paths HIGHER than this project root,
+> that is in any direct or indirect parent directory of this directory or file located in such directory.
+> Project root is where this THIS VERY FILE is located and you may never change anything above it. You may only
+> change files and directories which are logically on a CHILD path of THIS directory
+
 ## Project Overview
 
 `azos-py` provides foundational types and service functionality for Python applications, acting as a base library for the Azos ecosystem. It appears to port concepts from the Azos framework (likely .NET-based) to Python, facilitating interoperability and standardized patterns.
