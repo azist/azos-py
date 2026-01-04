@@ -18,5 +18,7 @@
     "workbench.tree.indent": 25,
     "workbench.tree.renderIndentGuides": "always",
     "editor.mouseWheelZoom": true,
+    "files.trimTrailingWhitespace": true,
+    "editor.renderWhitespace": "all",
 
 }
