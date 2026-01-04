@@ -1,3 +1,7 @@
+"""
+Azos Open Telemetry Module
+Copyright (C) 2026 Azist, MIT License
+"""
 import log
 
 #todo: Capability detection

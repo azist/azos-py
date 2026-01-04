@@ -1,53 +1,79 @@
 """Provides structured logging support
-Copyright (C) 20025 Azist, MIT License
+Copyright (C) 2025 Azist, MIT License
 
 """
+import sys
 import logging
 import json
 import uuid
-import sys
-from  typing import Callable
 import datetime
-import threading
-import platform
+import contextvars
+
+from typing import Callable
+from azos.application import Application
 
 LOG_SCHEMA_VERSION = 0
-INSTANCE_ID = str(uuid.uuid4())[:8] # Shortened UUID for brevity
+"""Current log schema implementation version"""
 
-LOG_HOST = platform.node()
+CFG_LOG_SECTION = "log"
+"""Configuration log section name: [log]"""
 
-__ts_log_id = threading.local()
-__ts_log_id.val = None
+CFG_LOG_LEVEL_ATTR_PFX = "log-"
+"""Log level attribute prefix, e.g. `log-db=ERROR` - sets error level logging for `db` logger """
 
-def newLogRecordId():
+LOG_CHANNEL_APP = "app"
+"""Default application log channel"""
+
+LOG_CHANNEL_DEFAULT = LOG_CHANNEL_APP
+"""Default log channel (app)"""
+
+LOG_CHANNEL_OTEL = "otel"
+"""Open telemetry data"""
+
+LOG_CHANNEL_OPLOG = "oplog"
+"""Oplog channel is used to trace business operations, such as requests/response bodies"""
+
+LOG_CHANNEL_SEC = "sec"
+"""Security events"""
+
+LOG_CHANNEL_ANL = "anl"
+"""Analytics, such as dashboard feeds"""
+
+# supports threading and async such as FastApi etc.
+_ts_log_id: contextvars.ContextVar[str | None] = contextvars.ContextVar("log_id", default=None)
+
+
+def new_log_id() -> str:
   """
   Generates new LOG id which you may want to track for correlation of log messages using `rel` parameter
   of strands or manually adding it to extra collection as `sys_rel`
   """
   result = uuid.uuid4().hex
-  __ts_log_id.val = result
+  _ts_log_id.set(result)
   return result
 
-# Sets our schema
+
 class AzLogRecord(logging.LogRecord):
     """
-    A derivative of LogRecord that adheres to our uniform schema
+    A derivative of LogRecord that adheres to uniform Azos/Sky schema
     """
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
         try:
-          id = __ts_log_id.val
-          self.sys_id = id if id else newLogRecordId()
+          nid = _ts_log_id.get()
+          self.sys_id = nid if nid else new_log_id()
         finally:
-          __ts_log_id.val = None
+          _ts_log_id.set(None)
 
-        self.sys_app = "demo" #todo: map!!!!
-        self.sys_app_inst = INSTANCE_ID
+        chassis = Application.get_current_instance()
+        self.sys_app = chassis.app
+        self.sys_app_inst = chassis.instance_tag
+        self.sys_host = chassis.host
 
 
 # Custom log factory function
-def az_log_record_factory(*args, **kwargs):
+def _az_log_record_factory(*args, **kwargs):
     """
     Factory function that returns an instance of our our AzLogRecord.
     Forwarding all arguments to the constructor.
@@ -59,15 +85,17 @@ class AzLogRecordFormatter(logging.Formatter):
     """
     Provides base implementation for Azos log formatters
     """
-    EXCLUDED_DATA_FIELDS = ( set(dir(logging.LogRecord(name="", level=0, pathname="",
-                                 lineno=0, msg='', args=(), exc_info=None))))
+    EXCLUDED_DATA_FIELDS = (set(
+        dir(logging.LogRecord(name="", level=0, pathname="", lineno=0, msg='', args=(), exc_info=None))
+    ))
 
+
+    _hook_enrichment_func: Callable[[logging.Formatter, logging.LogRecord, dict], None] | None = None
     """
     Internal hook used to set up logging enrichment with attributes such as OpenTelemetry traces
     the function takes: (AzLogRecordFormatter, LogRecord, dict) params
     Business developers: DO NOT use this hook, it is for internal use and should be avoided in business code
     """
-    _hook_enrichment_func: Callable[[logging.Formatter, logging.LogRecord, dict], None] | None = None
 
     def enrich(self, record: AzLogRecord, log_record: dict) -> None:
         """
@@ -78,25 +106,24 @@ class AzLogRecordFormatter(logging.Formatter):
             AzLogRecordFormatter._hook_enrichment_func(self, record, log_record)
 
 
-# Custom JSON formatter
-    """
-    Prepares structured logging structure:
-    This is ideal for structured logging in containerized environments.
-    """
     def format(self, record: logging.LogRecord):
+        """
+        Prepares structured logging structure:
+        This is ideal for structured logging in containerized environments.
+        """
 
         if not isinstance(record, AzLogRecord):
-             return super().format(record)
+            return super().format(record)
 
         # Start with the basic log record attributes
         log_record = {
             "id": record.sys_id,
             "rel": None,
-            "chn": "app",
+            "chn": LOG_CHANNEL_DEFAULT,
             "lvl": record.levelname,
             "utc": int(record.created * 1000),
             "lts": datetime.datetime.fromtimestamp(record.created).isoformat(),
-            "hst": LOG_HOST,
+            "hst": record.sys_host,
             "app": record.sys_app,
             "ain": record.sys_app_inst,
             "nm": "/" if record.name=="root" else record.name,
@@ -110,7 +137,6 @@ class AzLogRecordFormatter(logging.Formatter):
 
         if hasattr(record, 'sys_channel'):
             log_record['chn'] = record.sys_channel # pyright: ignore[reportAttributeAccessIssue]
-
 
         if record.exc_info:
            log_record['error'] = self.formatException(record.exc_info)
@@ -126,13 +152,13 @@ class AzLogRecordFormatter(logging.Formatter):
                 if not callable(val):
                     data[attr] = val
 
-        if len(data) > 0:  log_record["d"] = data
+        if len(data) > 0:
+            log_record["d"] = data
 
         log_record["v"] = LOG_SCHEMA_VERSION
 
         self.enrich(record, log_record)
 
-        # Output the data
         return self.do_format(record, log_record)
 
     def do_format(self, record, log_record):
@@ -152,6 +178,8 @@ class AzLogRecordJsonFormatter(AzLogRecordFormatter):
         """
         return json.dumps(log_record, separators=(',', ':'))
 
+
+# ++++++++++++++++++++++ TYT ostanovilsya
 
 class AzLogStrand(logging.LoggerAdapter):
     """

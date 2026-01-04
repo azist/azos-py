@@ -1,22 +1,55 @@
-[build-system]
-requires = ["setuptools>=61.0"]
-build-backend = "setuptools.build_meta"
-
 [project]
 name = "azos"
-version = "0.1.1"
-authors = [
-  { name="Azist", email="azist@zhabis.com" },
-]
+version = "0.2.1"
 description = "Provides Azos base types and services functionality for Python apps"
 readme = "README.md"
 requires-python = ">=3.11"
+license = { text = "MIT" }
+
+# Authors/Maintainers (metadata similar to NuGet)
+authors = [
+  { name = "Azist", email = "azist@zhabis.com" }
+]
+
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
 
+# Core dependencies (installed by default)
+dependencies = [
+# "requests>=2.0.0",  # Example: Everyone using 'azos' gets this
+]
+
+# --------------------------------------------------------
+# OPTIONAL DEPENDENCIES (The [Square Brackets] features)
+# --------------------------------------------------------
+[project.optional-dependencies]
+# Usage: pip install "azos[apm]"
+# This allows you to keep heavy APM libraries optional
+apm = [
+    "opentelemetry-api>=1.20"
+]
+
+# Usage: pip install "azos[dev]"
+# Dependencies needed only for testing/development
+dev = [
+    "pytest",
+    "ruff"
+]
+
 [project.urls]
 "Homepage" = "https://github.com/azist/azos-py"
 "Bug Tracker" = "https://github.com/azist/azos-py/issues"
+
+# --------------------------------------------------------
+# BUILD SYSTEM CONFIGURATION (UV uses HATCHLING by default)
+# --------------------------------------------------------
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+# This ensures 'uv' looks for your code in the 'src' directory
+[tool.hatch.build.targets.wheel]
+packages = ["src/azos"]
