@@ -1,5 +1,5 @@
 """Provides structured logging support
-Copyright (C) 2025 Azist, MIT License
+Copyright (C) 2025-2026 Azist, MIT License
 
 """
 import sys
@@ -11,6 +11,8 @@ import contextvars
 
 from typing import Callable
 from azos.application import Application
+from azos.conio import ANSIColors
+
 
 LOG_SCHEMA_VERSION = 0
 """Current log schema implementation version"""
@@ -179,6 +181,40 @@ class AzLogRecordJsonFormatter(AzLogRecordFormatter):
         return json.dumps(log_record, separators=(',', ':'))
 
 
+class AzLogRecordVisualFormatter(AzLogRecordFormatter):
+    # Map logging level constants to literal color names
+    COLOR_MAP = {
+        logging.DEBUG: "BLUE",
+        logging.INFO: "GREEN",
+        logging.WARNING: "YELLOW",
+        logging.ERROR: "RED",
+        logging.CRITICAL: "PURPLE",
+    }
+
+    def do_format(self, record: logging.LogRecord, log_record: dict):
+        """Formats for a rich visual presentation in dev console"""
+        segs = []
+        fg1 = ANSIColors.color(self.COLOR_MAP.get(record.levelno, 'WHITE'), bright=True, fg=True)
+        fg2 = ANSIColors.color(self.COLOR_MAP.get(record.levelno, 'WHITE'), bright=False, fg=True)
+
+        lvl = f"*-{fg1}{log_record['lvl']} {log_record['id'][:8]}{ANSIColors.RESET}"
+        msg = f" \--> {fg2}{log_record['msg']}{ANSIColors.RESET}"
+        otl = log_record.get("oti")
+        if otl:
+            otl = (
+                f"{ANSIColors.FG_YELLOW}W {ANSIColors.FG_BRIGHT_MAGENTA}{otl}{ANSIColors.FG_GRAY}-"
+                f"{ANSIColors.FG_CYAN}{log_record.get('ots','none')}{ANSIColors.RESET}"
+            )
+        else:
+            otl = ""
+
+
+        return "".join(segs)
+
+
+class AzLogRecordTerseFormatter(AzLogRecordVisualFormatter):
+    pass
+
 class AzLogStrand(logging.LoggerAdapter):
     """
     Creates a named log conversation topic optionally grouping all log  messages with REL tag and
@@ -237,7 +273,7 @@ class AzLogStrand(logging.LoggerAdapter):
 # hence they lose the context, therefore you need to get your pyspark logger
 # via a call to `get_pyspark_logger(name) -> Logger` from withing your UDF func body
 #warning: do not use __ mangling for Spark UDF teleportation
-def _activate_az_logging():
+def _activate_az_logging() -> None:
 
   # one time use Latch
   if logging.getLogRecordFactory() is az_log_record_factory: return

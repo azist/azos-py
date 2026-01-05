@@ -53,25 +53,25 @@ class ANSIColors:
 
 def bright_fg(color: str) -> str:
     """Return bright foreground ANSI code for color name."""
-    return get_color_code(color, bright=True, fg=True)
+    return color(color, bright=True, fg=True)
 
 
 def bright_bg(color: str) -> str:
     """Return bright background ANSI code for color name."""
-    return get_color_code(color, bright=True, fg=False)
+    return color(color, bright=True, fg=False)
 
 
 def dark_fg(color: str) -> str:
     """Return dark/normal foreground ANSI code for color name."""
-    return get_color_code(color, bright=False, fg=True)
+    return color(color, bright=False, fg=True)
 
 
 def dark_bg(color: str) -> str:
     """Return dark/normal background ANSI code for color name."""
-    return get_color_code(color, bright=False, fg=False)
+    return color(color, bright=False, fg=False)
 
 
-def get_color_code(color: str, bright: bool = False, fg: bool = True) -> str:
+def color(color: str, bright: bool = False, fg: bool = True) -> str:
     """Returns an ANSI console escape code using ANSIColors constants."""
     color_key = color.upper()
     if color_key == "RESET":
