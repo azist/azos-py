@@ -50,27 +50,33 @@ class ANSIColors:
     BG_BRIGHT_CYAN = "\033[106m"
     BG_BRIGHT_WHITE = "\033[107m"
 
-    @staticmethod
-    def bright_fg(color: str) -> str:
-        return ANSIColors.get_color_code(color, True, True)
 
-    @staticmethod
-    def bright_bg(color: str) -> str:
-        return ANSIColors.get_color_code(color, True, False)
+def bright_fg(color: str) -> str:
+    """Return bright foreground ANSI code for color name."""
+    return get_color_code(color, bright=True, fg=True)
 
-    @staticmethod
-    def dark_fg(color: str) -> str:
-        return ANSIColors.get_color_code(color, False, True)
 
-    @staticmethod
-    def dark_bg(color: str) -> str:
-        return ANSIColors.get_color_code(color, False, False)
+def bright_bg(color: str) -> str:
+    """Return bright background ANSI code for color name."""
+    return get_color_code(color, bright=True, fg=False)
 
-    @staticmethod
-    def get_color_code(color: str, bright: bool = False, fg: bool = True) -> str:
-        """Returns an ANSI console escape code"""
-        color = color.upper()
-        if color=="RESET": return ANSIColors.RESET;
 
-        key = f"{'FG' if fg else 'BG'}{'_BRIGHT' if bright else ''}_{color}"
-        return getattr(ANSIColors, key, (ANSIColors.FG_BRIGHT_WHITE if bright else ANSIColors.FG_WHITE) if fg else ANSIColors.BG_BLACK)
+def dark_fg(color: str) -> str:
+    """Return dark/normal foreground ANSI code for color name."""
+    return get_color_code(color, bright=False, fg=True)
+
+
+def dark_bg(color: str) -> str:
+    """Return dark/normal background ANSI code for color name."""
+    return get_color_code(color, bright=False, fg=False)
+
+
+def get_color_code(color: str, bright: bool = False, fg: bool = True) -> str:
+    """Returns an ANSI console escape code using ANSIColors constants."""
+    color_key = color.upper()
+    if color_key == "RESET":
+        return ANSIColors.RESET
+
+    key = f"{'FG' if fg else 'BG'}{'_BRIGHT' if bright else ''}_{color_key}"
+    fallback = (ANSIColors.FG_BRIGHT_WHITE if bright else ANSIColors.FG_WHITE) if fg else ANSIColors.BG_BLACK
+    return getattr(ANSIColors, key, fallback)

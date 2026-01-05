@@ -179,20 +179,26 @@ class AzLogRecordJsonFormatter(AzLogRecordFormatter):
         return json.dumps(log_record, separators=(',', ':'))
 
 
-# ++++++++++++++++++++++ TYT ostanovilsya
-
 class AzLogStrand(logging.LoggerAdapter):
     """
-    Creates a named log conversation topic optionally grouping all log
-    messages with REL tag and putting them on specified channel
+    Creates a named log conversation topic optionally grouping all log  messages with REL tag and
+    putting them on specified channel
     """
-    def __init__(self, loggerName, rel = None, channel = None):
-        logger = logging.getLogger(loggerName)
-        super().__init__(logger, { })
+    def __init__(self, logger_name: str | None, rel: str | None = None, channel: str | None = None):
+        """
+        Initializes a named logger with optional REL correllation and channel assignment
+
+        :param self: self ref
+        :param logger_name (str | None): case-insensitive logger name (converted to lower case)
+        :param rel (str | None) Optional corrwlation id to be applied to all log messages emittrd by this strand
+        :param channel (str | None): Optional channel name to categorize log messages
+        """
+        logger = logging.getLogger(logger_name.lower()) # case-insensitive
+        super().__init__(logger, {})
 
         #pre-generate ID to be used in correlation
-        self.id = newLogRecordId()
-        self.rel = rel
+        self.strand_id = new_log_id()
+        self.rel = self.strand_id if rel == "self" else rel
         self.channel = channel
 
 
@@ -205,8 +211,10 @@ class AzLogStrand(logging.LoggerAdapter):
         context = self.extra.copy()  if self.extra  else { } # pyright: ignore[reportAttributeAccessIssue]
 
         # 2. Set log thread context
-        if self.rel: context["sys_rel"] = self.rel
-        if self.channel: context["sys_channel"] = self.channel
+        if self.rel:
+            context["sys_rel"] = self.rel
+        if self.channel:
+            context["sys_channel"] = self.channel
 
         # 3. Update with any specific context passed in this log call
         if 'extra' in kwargs:
