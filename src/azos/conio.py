@@ -10,6 +10,9 @@ class ANSIColors:
     # Control
     RESET = "\033[0m"
 
+    FG_DEFAULT = "\033[39m"
+    BG_DEFAULT = "\033[49m"
+
     # Foreground Colors - Low Intensity
     FG_BLACK = "\033[30m"
     FG_RED = "\033[31m"
@@ -19,6 +22,7 @@ class ANSIColors:
     FG_MAGENTA = "\033[35m"
     FG_CYAN = "\033[36m"
     FG_WHITE = "\033[37m"
+    FG_GRAY = "\033[90m"
 
     # Foreground Colors - High Intensity (Bright)
     FG_BRIGHT_BLACK = "\033[90m"
@@ -39,6 +43,7 @@ class ANSIColors:
     BG_MAGENTA = "\033[45m"
     BG_CYAN = "\033[46m"
     BG_WHITE = "\033[47m"
+    BG_GRAY = "\033[100m"
 
     # Background Colors - High Intensity (Bright)
     BG_BRIGHT_BLACK = "\033[100m"

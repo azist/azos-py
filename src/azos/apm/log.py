@@ -197,22 +197,37 @@ class AzLogRecordVisualFormatter(AzLogRecordFormatter):
         fg1 = ANSIColors.color(self.COLOR_MAP.get(record.levelno, 'WHITE'), bright=True, fg=True)
         fg2 = ANSIColors.color(self.COLOR_MAP.get(record.levelno, 'WHITE'), bright=False, fg=True)
 
-        lvl = f"*-{fg1}{log_record['lvl']} {log_record['id'][:8]}{ANSIColors.RESET}"
-        msg = f" \--> {fg2}{log_record['msg']}{ANSIColors.RESET}"
+        lvl = f"{fg1}╔═╣{log_record['lvl']}╠══╣{log_record['id'][:8]}║{ANSIColors.RESET}"
+        msg = f"{fg1}╚═>{fg2}{log_record['msg']}{ANSIColors.RESET}"
         otl = log_record.get("oti")
         if otl:
             otl = (
-                f"{ANSIColors.FG_YELLOW}W {ANSIColors.FG_BRIGHT_MAGENTA}{otl}{ANSIColors.FG_GRAY}-"
+                f"{ANSIColors.FG_YELLOW}■ {ANSIColors.FG_BRIGHT_MAGENTA}{otl}{ANSIColors.FG_GRAY}-"
                 f"{ANSIColors.FG_CYAN}{log_record.get('ots','none')}{ANSIColors.RESET}"
             )
         else:
             otl = ""
 
+        segs.append(f"{lvl} {ANSIColors.FG_GRAY} {log_record['lts']} ■ {ANSIColors.FG_BRIGHT_WHITE}{log_record['chn']}{ANSIColors.RESET}")
+        segs.append(f"«{log_record['nm']}» {ANSIColors.FG_GRAY}{log_record['frm']}{ANSIColors.RESET}")
+        segs.append(f"{ANSIColors.FG_CYAN}{log_record['rel'][:8] if log_record.get('rel') else ''}{ANSIColors.RESET}")
+        segs.append(f"{otl}")
+        segs.append(f"{msg}")
+
+        if "d" in log_record:
+            js = json.dumps(log_record["d"])
+            segs.append(f" \n {ANSIColors.FG_GRAY}   └─► {js}{ANSIColors.RESET}")
+
+        err = log_record.get("error", None)
+        if err:
+            err = err.replace("\n", f"\n {ANSIColors.FG_BRIGHT_RED}░{ANSIColors.FG_RED}       ")
+            segs.append(f" \n     └─► {err}{ANSIColors.RESET}")
 
         return "".join(segs)
 
 
 class AzLogRecordTerseFormatter(AzLogRecordVisualFormatter):
+    #todo: implement terse formatter
     pass
 
 class AzLogStrand(logging.LoggerAdapter):
