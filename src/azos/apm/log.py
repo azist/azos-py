@@ -290,27 +290,41 @@ class AzLogStrand(logging.LoggerAdapter):
 #warning: do not use __ mangling for Spark UDF teleportation
 def _activate_az_logging() -> None:
 
+  chassis = Application.get_current_instance()
+  conf = chassis.config
+
+
   # one time use Latch
-  if logging.getLogRecordFactory() is az_log_record_factory: return
+  if logging.getLogRecordFactory() is not _az_log_record_factory:
+      logging.setLogRecordFactory(_az_log_record_factory)
 
-  # 1. Set the Factory (Global Change) ---
-  # This is a one-time setup that affects ALL loggers in the process.
-  logging.setLogRecordFactory(az_log_record_factory)
 
-  # 2. Get root logger
+  # Get root logger
   root = logging.getLogger()
   root.setLevel(logging.DEBUG)
 
-  # 3. Create the Handler (StreamHandler directs output to sys.stdout/stderr)
+  mode = ""
+  if conf.has_section(CFG_LOG_SECTION):
+      mode = conf.get(CFG_LOG_SECTION, "mode", fallback="")
+      levels = [(key[len(CFG_LOG_LEVEL_ATTR_PFX):], conf.get(CFG_LOG_SECTION, key, fallback=None))
+                for key in conf.options(CFG_LOG_SECTION) if key.startswith(CFG_LOG_LEVEL_ATTR_PFX)]
+      for one in levels:
+          logging.getLogger(one[0]).setLevel(one[1])
+
+
+  # Create the Handler (StreamHandler directs output to sys.stdout/stderr)
   # We explicitly target sys.stdout for all general logs
   handler = logging.StreamHandler(sys.stdout)
 
-  # 4. Formatter and set to handler
-  # todo: Here access config to set DEV formatter for local workstation use
-  formatter = AzLogRecordJsonFormatter()
+  # Formatter and set to handler
+
+  formatter = AzLogRecordVisualFormatter() if mode == "visual" else \
+                AzLogRecordTerseFormatter() if mode == "terse" else \
+                AzLogRecordJsonFormatter()
+
   handler.setFormatter(formatter)
 
-  # 5. Clear any existing handlers and add the new one
+  # Clear any existing handlers and add the new one
   if root.hasHandlers():
       root.handlers.clear()
 
@@ -325,6 +339,14 @@ def get_pyspark_logger(name: str | None) -> logging.Logger:
     logger = logging.getLogger(f"PySpark::{name}" if name else "PySpark")
     return logger
 
+# Plumbing for Azos Application chassis load event
+def __app_chassis_load():
+    logging.debug("Azos APM Log module re loaded upon app chassis")
+    _activate_az_logging()
+
+
 # Activate globally
+# Install global app chassis hook
+Application.register_global_dependency_callback(__app_chassis_load)
 _activate_az_logging()
 #end.
