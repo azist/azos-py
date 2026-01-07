@@ -1,9 +1,26 @@
-import log
+"""
+Azos Open Telemetry Module
+Copyright (C) 2026 Azist, MIT License
+"""
+from . import log
+from azos.application import Application
 
-#todo: Capability detection
-from opentelemetry import trace
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor
+try:
+    from opentelemetry import trace
+    from opentelemetry.sdk.resources import Resource
+    from opentelemetry.sdk.trace import TracerProvider, Tracer, StatusCode
+    from opentelemetry.sdk.trace.export import (BatchSpanProcessor,
+                                                SpanExporter,
+                                                ConsoleSpanExporter,
+                                                SimpleSpanProcessor,
+                                                SpanExportResult)
+    from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+except ImportError as cause:
+    raise ImportError(
+        "Azos APM Open Telemetry module requires opentelemetry-sdk and related packages. "
+        "Please install them via pip: " \
+        " pip install opentelemetry-api opentelemetry-sdk opentelemetry-exporter-otlp") from cause
+
 
 # Enriches our logs with OTEL cross correlation tokens
 # this gets wired up into logging so you dont need to call this ever
