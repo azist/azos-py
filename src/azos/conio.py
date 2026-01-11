@@ -58,25 +58,24 @@ class ANSIColors:
 
 def bright_fg(color: str) -> str:
     """Return bright foreground ANSI code for color name."""
-    return color(color, bright=True, fg=True)
+    return mix(color, bright=True, fg=True)
 
 
 def bright_bg(color: str) -> str:
     """Return bright background ANSI code for color name."""
-    return color(color, bright=True, fg=False)
+    return mix(color, bright=True, fg=False)
 
 
 def dark_fg(color: str) -> str:
     """Return dark/normal foreground ANSI code for color name."""
-    return color(color, bright=False, fg=True)
+    return mix(color, bright=False, fg=True)
 
 
 def dark_bg(color: str) -> str:
     """Return dark/normal background ANSI code for color name."""
-    return color(color, bright=False, fg=False)
+    return mix(color, bright=False, fg=False)
 
-
-def color(color: str, bright: bool = False, fg: bool = True) -> str:
+def mix(color: str, bright: bool = False, fg: bool = True) -> str:
     """Returns an ANSI console escape code using ANSIColors constants."""
     color_key = color.upper()
     if color_key == "RESET":
@@ -85,3 +84,4 @@ def color(color: str, bright: bool = False, fg: bool = True) -> str:
     key = f"{'FG' if fg else 'BG'}{'_BRIGHT' if bright else ''}_{color_key}"
     fallback = (ANSIColors.FG_BRIGHT_WHITE if bright else ANSIColors.FG_WHITE) if fg else ANSIColors.BG_BLACK
     return getattr(ANSIColors, key, fallback)
+

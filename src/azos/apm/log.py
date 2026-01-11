@@ -11,7 +11,7 @@ import contextvars
 
 from typing import Callable
 from azos.application import Application
-from azos.conio import ANSIColors
+from azos.conio import ANSIColors, mix
 
 
 LOG_SCHEMA_VERSION = 0
@@ -194,8 +194,8 @@ class AzLogRecordVisualFormatter(AzLogRecordFormatter):
     def do_format(self, record: logging.LogRecord, log_record: dict):
         """Formats for a rich visual presentation in dev console"""
         segs = []
-        fg1 = ANSIColors.color(self.COLOR_MAP.get(record.levelno, 'WHITE'), bright=True, fg=True)
-        fg2 = ANSIColors.color(self.COLOR_MAP.get(record.levelno, 'WHITE'), bright=False, fg=True)
+        fg1 = mix(self.COLOR_MAP.get(record.levelno, 'WHITE'), bright=True, fg=True)
+        fg2 = mix(self.COLOR_MAP.get(record.levelno, 'WHITE'), bright=False, fg=True)
 
         lvl = f"{fg1}╔═╣{log_record['lvl']}╠══╣{log_record['id'][:8]}║{ANSIColors.RESET}"
         msg = f"{fg1}╚═>{fg2}{log_record['msg']}{ANSIColors.RESET}"
@@ -237,14 +237,14 @@ class AzLogStrand(logging.LoggerAdapter):
     """
     def __init__(self, logger_name: str | None, rel: str | None = None, channel: str | None = None):
         """
-        Initializes a named logger with optional REL correllation and channel assignment
+        Initializes a named logger with optional REL correlation and channel assignment
 
         :param self: self ref
         :param logger_name (str | None): case-insensitive logger name (converted to lower case)
-        :param rel (str | None) Optional corrwlation id to be applied to all log messages emittrd by this strand
+        :param rel (str | None) Optional correlation id to be applied to all log messages emittrd by this strand
         :param channel (str | None): Optional channel name to categorize log messages
         """
-        logger = logging.getLogger(logger_name.lower()) # case-insensitive
+        logger = logging.getLogger(logger_name.lower() if logger_name else None) # case-insensitive
         super().__init__(logger, {})
 
         #pre-generate ID to be used in correlation
@@ -309,7 +309,8 @@ def _activate_az_logging() -> None:
       levels = [(key[len(CFG_LOG_LEVEL_ATTR_PFX):], conf.get(CFG_LOG_SECTION, key, fallback=None))
                 for key in conf.options(CFG_LOG_SECTION) if key.startswith(CFG_LOG_LEVEL_ATTR_PFX)]
       for one in levels:
-          logging.getLogger(one[0]).setLevel(one[1])
+          if one[1] is not None:
+            logging.getLogger(one[0]).setLevel(one[1])
 
 
   # Create the Handler (StreamHandler directs output to sys.stdout/stderr)
