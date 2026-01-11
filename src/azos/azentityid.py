@@ -1,14 +1,13 @@
 """Provides interop functions for working with Azos EntityId data type
 
-Copyright (C) 20023 Azist, MIT License
-
+Copyright (C) 2023 Azist, MIT License
 
 """
 
 import json
 
 from .azexceptions import AzosError
-from azatom import Atom
+from .azatom import Atom
 
 TP_PREFIX = "@"
 SCHEMA_DIV = "."
@@ -26,7 +25,54 @@ def tryparse(val: str) -> tuple | None:
     if vlen < 4:
         return None
 
-    # Todo: Finish
+    # Find the :: separator which divides system/type/schema from address
+    sys_idx = val.find(SYS_PREFIX)
+    if sys_idx == -1:
+        return None
+
+    # Split into prefix (system/type/schema part) and address
+    prefix = val[:sys_idx]
+    address = val[sys_idx + len(SYS_PREFIX):]
+
+    # Address must not be empty
+    if not address:
+        return None
+
+    # Find @ separator which divides type/schema from system
+    tp_idx = prefix.find(TP_PREFIX)
+
+    if tp_idx == -1:
+        # No type/schema qualifier, only system (format: system::address)
+        if not prefix:
+            return None
+        sys = Atom(prefix)
+        type = Atom(0)
+        schema = Atom(0)
+    else:
+        # Has type/schema part (format: type.schema@system::address or type@system::address)
+        type_schema_part = prefix[:tp_idx]
+        system_part = prefix[tp_idx + len(TP_PREFIX):]
+
+        if not system_part or not type_schema_part:
+            return None
+
+        sys = Atom(system_part)
+
+        # Split type and schema
+        schema_idx = type_schema_part.find(SCHEMA_DIV)
+        if schema_idx == -1:
+            # No schema (format: type@system::address)
+            type = Atom(type_schema_part)
+            schema = Atom(0)
+        else:
+            # Full format (type.schema@system::address)
+            type_part = type_schema_part[:schema_idx]
+            schema_part = type_schema_part[schema_idx + len(SCHEMA_DIV):]
+            if not type_part or not schema_part:
+                return None
+            type = Atom(type_part)
+            schema = Atom(schema_part)
+
     return (sys, type, schema, address)
 
 def parse(val: str) -> tuple:
@@ -36,6 +82,7 @@ def parse(val: str) -> tuple:
     result = tryparse(val)
     if result == None:
         raise AzosError("Supplied value is not parsable as EntityId", "entityid", f"parse(`{val}`)")
+    return result
 
 
 class EntityId:
@@ -92,7 +139,34 @@ class EntityId:
     def __hash__(self):
         return hash(self._system) ^ hash(self._type) ^ hash(self._schema) ^ hash(self._address)
 
-    def get_value(self) -> str:
+    @property
+    def system(self) -> Atom:
+        """Gets EntityId.System: Atom"""
+        return self._system
+
+    @property
+    def type(self) -> Atom:
+        """Gets EntityId.Type: Atom"""
+        return self._type
+
+    @property
+    def schema(self) -> Atom:
+        """Gets EntityId.Schema: Atom"""
+        return self._schema
+
+    @property
+    def address(self) -> str:
+        """Gets EntityId.Address: str"""
+        return self._address
+
+    @property
+    def is_composite_address(self) -> bool:
+        """Returns True when address is assigned as composite JSON object starting with '{' and ending with '}' without any leading or trailing spaces"""
+        return self._address.startswith("{") and self._address.endswith("}")
+
+    @property
+    def value(self) -> str:
+        """Returns EntityId string value"""
         if self._type.is_zero:
             return f"{self._system}{SYS_PREFIX}{self._address}"
         if self._schema.is_zero:
@@ -100,11 +174,22 @@ class EntityId:
 
         return f"{self._type}{SCHEMA_DIV}{self._schema}{TP_PREFIX}{self._system}{SYS_PREFIX}{self._address}"
 
-    def get_components(self) -> tuple:
+    @property
+    def components(self) -> tuple:
         """Returns components of entity id a s a tuple of (sys,type,schema,address)
 
         """
         return (self._system, self._type, self._schema, self._address)
+
+    def get_value(self) -> str:
+        """Returns EntityId string value (deprecated: use .value property instead)"""
+        return self.value
+
+    def get_components(self) -> tuple:
+        """Returns components of entity id a s a tuple of (sys,type,schema,address) (deprecated: use .components property instead)
+
+        """
+        return self.components
 
     def get_composite_address(self) -> map | None:
         """
@@ -118,19 +203,6 @@ class EntityId:
             return json.loads(self._address)
         except Exception as cause:
             raise AzosError("EntityId contains invalid composite address", "entityid", f"get_composite_address()") from cause
-
-
-    system  = property(fget = lambda self: self._system,  doc = "Gets EntityId.System: Atom")
-    type    = property(fget = lambda self: self._type,    doc = "Gets EntityId.Type: Atom")
-    schema  = property(fget = lambda self: self._schema,  doc = "Gets EntityId.Schema: Atom")
-    address = property(fget = lambda self: self._address, doc = "Gets EntityId.Address: str")
-    is_composite_address = property(
-        fget = lambda self: self._address.startswith("{") and self._address.endswith("}"),
-        doc = "Returns True when address is assigned as composite JSON object starting with '{' and ending with '}' without any leading or trailing spaces"
-    )
-
-    value = property(fget = get_value, doc = "Returns EntityId string value")
-    components = property(fget = get_components, doc = "Returns EntityId components tuple of (sys, type, schema, address)")
 
 if __name__ == "__main__":
     a = EntityId(Atom("sys"), Atom("tp"), Atom("sch"), "o{\"a\": 1}")

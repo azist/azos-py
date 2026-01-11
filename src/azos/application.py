@@ -1,7 +1,7 @@
 """
 Uniform application chassis pattern
 
-Copyright (C) 20023 Azist, MIT License
+Copyright (C) 2023 Azist, MIT License
 
 """
 import os
