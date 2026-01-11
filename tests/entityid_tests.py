@@ -1,0 +1,313 @@
+import pytest
+import json
+from azos.azentityid import EntityId
+from azos.azatom import Atom
+from azos.azexceptions import AzosError
+
+
+# Tests for EntityId constructor and basic properties
+def test_constructor_01():
+    """Test basic EntityId construction with all components"""
+    eid = EntityId(Atom("dealer"), Atom("car"), Atom("vin"), "1A8987339HBz0909W874")
+    assert eid.system.id == Atom("dealer").id
+    assert eid.type.id == Atom("car").id
+    assert eid.schema.id == Atom("vin").id
+    assert eid.address == "1A8987339HBz0909W874"
+
+
+def test_constructor_02():
+    """Test EntityId with zero type"""
+    eid = EntityId(Atom("dealer"), Atom(0), Atom(0), "I9973OD")
+    assert eid.system.id == Atom("dealer").id
+    assert eid.type.is_zero
+    assert eid.schema.is_zero
+    assert eid.address == "I9973OD"
+
+
+# Tests for value property - formatted string representation
+def test_value_01():
+    """Test value property with full components: type.schema@system::address"""
+    eid = EntityId(Atom("dealer"), Atom("car"), Atom("vin"), "1A8987339HBz0909W874")
+    assert eid.value == "car.vin@dealer::1A8987339HBz0909W874"
+
+
+def test_value_02():
+    """Test value property with another full example: boat.license@dealer::I9973OD"""
+    eid = EntityId(Atom("dealer"), Atom("boat"), Atom("license"), "I9973OD")
+    assert eid.value == "boat.license@dealer::I9973OD"
+
+
+def test_value_03():
+    """Test value property with zero type - system::address format"""
+    eid = EntityId(Atom("dealer"), Atom(0), Atom(0), "I9973OD")
+    assert eid.value == "dealer::I9973OD"
+
+
+def test_value_04():
+    """Test value property with zero schema - type@system::address format"""
+    eid = EntityId(Atom("dealer"), Atom("car"), Atom(0), "ABC123")
+    assert eid.value == "car@dealer::ABC123"
+
+
+# Tests for __str__ and __repr__
+def test_str_01():
+    """Test __str__ returns the value property"""
+    eid = EntityId(Atom("sys"), Atom("tp"), Atom("sch"), "addr123")
+    assert str(eid) == "tp.sch@sys::addr123"
+
+
+def test_repr_01():
+    """Test __repr__ returns formatted representation"""
+    eid = EntityId(Atom("sys"), Atom("tp"), Atom("sch"), "addr123")
+    assert repr(eid) == "EntityId(`tp.sch@sys::addr123`)"
+
+
+# Tests for equality and hashing
+def test_eq_01():
+    """Test equality of two EntityIds with same components"""
+    eid1 = EntityId(Atom("sys"), Atom("tp"), Atom("sch"), "addr123")
+    eid2 = EntityId(Atom("sys"), Atom("tp"), Atom("sch"), "addr123")
+    assert eid1 == eid2
+
+
+def test_eq_02():
+    """Test inequality of EntityIds with different addresses"""
+    eid1 = EntityId(Atom("sys"), Atom("tp"), Atom("sch"), "addr123")
+    eid2 = EntityId(Atom("sys"), Atom("tp"), Atom("sch"), "addr456")
+    assert eid1 != eid2
+
+
+def test_eq_03():
+    """Test inequality of EntityIds with different systems"""
+    eid1 = EntityId(Atom("sys1"), Atom("tp"), Atom("sch"), "addr123")
+    eid2 = EntityId(Atom("sys2"), Atom("tp"), Atom("sch"), "addr123")
+    assert eid1 != eid2
+
+
+def test_eq_04():
+    """Test inequality of EntityIds with different types"""
+    eid1 = EntityId(Atom("sys"), Atom("tp1"), Atom("sch"), "addr123")
+    eid2 = EntityId(Atom("sys"), Atom("tp2"), Atom("sch"), "addr123")
+    assert eid1 != eid2
+
+
+def test_eq_05():
+    """Test inequality of EntityIds with different schemas"""
+    eid1 = EntityId(Atom("sys"), Atom("tp"), Atom("sch1"), "addr123")
+    eid2 = EntityId(Atom("sys"), Atom("tp"), Atom("sch2"), "addr123")
+    assert eid1 != eid2
+
+
+def test_hash_01():
+    """Test hash equality for equal EntityIds"""
+    eid1 = EntityId(Atom("sys"), Atom("tp"), Atom("sch"), "addr123")
+    eid2 = EntityId(Atom("sys"), Atom("tp"), Atom("sch"), "addr123")
+    assert hash(eid1) == hash(eid2)
+
+
+def test_hash_02():
+    """Test hash inequality for different EntityIds"""
+    eid1 = EntityId(Atom("sys"), Atom("tp"), Atom("sch"), "addr123")
+    eid2 = EntityId(Atom("sys"), Atom("tp"), Atom("sch"), "addr456")
+    assert hash(eid1) != hash(eid2)
+
+
+def test_hash_03():
+    """Test EntityId can be used as dict key"""
+    eid = EntityId(Atom("sys"), Atom("tp"), Atom("sch"), "addr123")
+    d = {eid: "test_value"}
+    assert d[eid] == "test_value"
+
+
+# Tests for components property
+def test_components_01():
+    """Test components property returns tuple of all components"""
+    sys_atom = Atom("sys")
+    type_atom = Atom("tp")
+    schema_atom = Atom("sch")
+    address = "addr123"
+    eid = EntityId(sys_atom, type_atom, schema_atom, address)
+
+    components = eid.components
+    assert isinstance(components, tuple)
+    assert len(components) == 4
+    assert components[0] == sys_atom
+    assert components[1] == type_atom
+    assert components[2] == schema_atom
+    assert components[3] == address
+
+
+# Tests for from_components class method
+def test_from_components_01():
+    """Test creating EntityId from components tuple"""
+    components = (Atom("sys"), Atom("tp"), Atom("sch"), "addr123")
+    eid = EntityId.from_components(components)
+    assert eid.system.id == Atom("sys").id
+    assert eid.type.id == Atom("tp").id
+    assert eid.schema.id == Atom("sch").id
+    assert eid.address == "addr123"
+
+
+def test_from_components_02():
+    """Test from_components creates equivalent EntityId to direct constructor"""
+    components = (Atom("dealer"), Atom("car"), Atom("vin"), "ABC123")
+    eid1 = EntityId.from_components(components)
+    eid2 = EntityId(Atom("dealer"), Atom("car"), Atom("vin"), "ABC123")
+    assert eid1 == eid2
+
+
+# Tests for is_composite_address property
+def test_is_composite_address_01():
+    """Test is_composite_address returns True for JSON object address"""
+    eid = EntityId(Atom("sys"), Atom("tp"), Atom("sch"), '{"id": 123, "name": "test"}')
+    assert eid.is_composite_address
+
+
+def test_is_composite_address_02():
+    """Test is_composite_address returns False for simple string address"""
+    eid = EntityId(Atom("sys"), Atom("tp"), Atom("sch"), "simple_address")
+    assert not eid.is_composite_address
+
+
+def test_is_composite_address_03():
+    """Test is_composite_address returns False for partial JSON-like strings"""
+    eid = EntityId(Atom("sys"), Atom("tp"), Atom("sch"), "{incomplete")
+    assert not eid.is_composite_address
+
+
+def test_is_composite_address_04():
+    """Test is_composite_address requires no leading/trailing spaces"""
+    eid = EntityId(Atom("sys"), Atom("tp"), Atom("sch"), ' {"id": 1} ')
+    assert not eid.is_composite_address
+
+
+def test_is_composite_address_05():
+    """Test is_composite_address with empty JSON object"""
+    eid = EntityId(Atom("sys"), Atom("tp"), Atom("sch"), '{}')
+    assert eid.is_composite_address
+
+
+# Tests for get_composite_address method
+def test_get_composite_address_01():
+    """Test get_composite_address returns parsed JSON for composite address"""
+    json_str = '{"id": 123, "name": "test"}'
+    eid = EntityId(Atom("sys"), Atom("tp"), Atom("sch"), json_str)
+    result = eid.get_composite_address()
+    assert result is not None
+    assert result["id"] == 123
+    assert result["name"] == "test"
+
+
+def test_get_composite_address_02():
+    """Test get_composite_address returns None for non-composite address"""
+    eid = EntityId(Atom("sys"), Atom("tp"), Atom("sch"), "simple_address")
+    result = eid.get_composite_address()
+    assert result is None
+
+
+def test_get_composite_address_03():
+    """Test get_composite_address with nested JSON object"""
+    json_str = '{"user": {"id": 1, "email": "test@example.com"}, "active": true}'
+    eid = EntityId(Atom("sys"), Atom("tp"), Atom("sch"), json_str)
+    result = eid.get_composite_address()
+    assert result["user"]["id"] == 1
+    assert result["user"]["email"] == "test@example.com"
+    assert result["active"] == True
+
+
+def test_get_composite_address_04():
+    """Test get_composite_address with array in JSON"""
+    json_str = '{"items": [1, 2, 3], "count": 3}'
+    eid = EntityId(Atom("sys"), Atom("tp"), Atom("sch"), json_str)
+    result = eid.get_composite_address()
+    assert result["items"] == [1, 2, 3]
+    assert result["count"] == 3
+
+
+def test_get_composite_address_05():
+    """Test get_composite_address raises AzosError for invalid JSON"""
+    invalid_json = '{"invalid": json content}'
+    eid = EntityId(Atom("sys"), Atom("tp"), Atom("sch"), invalid_json)
+    with pytest.raises(AzosError) as exc_info:
+        eid.get_composite_address()
+    assert exc_info.value.frm == "get_composite_address()"
+
+
+def test_get_composite_address_06():
+    """Test get_composite_address with empty JSON object"""
+    eid = EntityId(Atom("sys"), Atom("tp"), Atom("sch"), '{}')
+    result = eid.get_composite_address()
+    assert result == {}
+
+
+# Tests for deprecated get_value and get_components methods
+def test_get_value_deprecated_01():
+    """Test deprecated get_value method still works"""
+    eid = EntityId(Atom("sys"), Atom("tp"), Atom("sch"), "addr123")
+    assert eid.get_value() == "tp.sch@sys::addr123"
+    assert eid.get_value() == eid.value
+
+
+def test_get_components_deprecated_01():
+    """Test deprecated get_components method still works"""
+    eid = EntityId(Atom("sys"), Atom("tp"), Atom("sch"), "addr123")
+    assert eid.get_components() == eid.components
+
+
+# Tests for property access
+def test_properties_01():
+    """Test all property accessors"""
+    sys_atom = Atom("dealer")
+    type_atom = Atom("car")
+    schema_atom = Atom("vin")
+    address = "1A8987339HBz0909W874"
+
+    eid = EntityId(sys_atom, type_atom, schema_atom, address)
+
+    assert eid.system == sys_atom
+    assert eid.type == type_atom
+    assert eid.schema == schema_atom
+    assert eid.address == address
+
+
+# Integration tests with real-world scenarios
+def test_integration_01():
+    """Test dealer car VIN scenario from docstring"""
+    eid = EntityId(Atom("dealer"), Atom("car"), Atom("vin"), "1A8987339HBz0909W874")
+    assert eid.value == "car.vin@dealer::1A8987339HBz0909W874"
+    assert str(eid) == "car.vin@dealer::1A8987339HBz0909W874"
+
+
+def test_integration_02():
+    """Test dealer boat license scenario from docstring"""
+    eid = EntityId(Atom("dealer"), Atom("boat"), Atom("license"), "I9973OD")
+    assert eid.value == "boat.license@dealer::I9973OD"
+
+
+def test_integration_03():
+    """Test default type scenario from docstring"""
+    eid = EntityId(Atom("dealer"), Atom(0), Atom(0), "I9973OD")
+    assert eid.value == "dealer::I9973OD"
+
+
+def test_integration_04():
+    """Test EntityId with composite address containing multiple fields"""
+    composite = '{"vin": "1A8987339HBz0909W874", "plate": "ABC123", "state": "CA"}'
+    eid = EntityId(Atom("dmv"), Atom("vehicle"), Atom("full"), composite)
+
+    assert eid.is_composite_address
+    addr = eid.get_composite_address()
+    assert addr["vin"] == "1A8987339HBz0909W874"
+    assert addr["plate"] == "ABC123"
+    assert addr["state"] == "CA"
+
+
+def test_integration_05():
+    """Test creating EntityId from components and verifying round-trip"""
+    original = EntityId(Atom("sys"), Atom("type"), Atom("schema"), "address")
+    components = original.components
+    recreated = EntityId.from_components(components)
+
+    assert original == recreated
+    assert original.value == recreated.value
+    assert hash(original) == hash(recreated)
