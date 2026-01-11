@@ -77,7 +77,7 @@ class AzLogRecord(logging.LogRecord):
 # Custom log factory function
 def _az_log_record_factory(*args, **kwargs):
     """
-    Factory function that returns an instance of our our AzLogRecord.
+    Factory function that returns an instance of our AzLogRecord.
     Forwarding all arguments to the constructor.
     """
     return AzLogRecord(*args, **kwargs)

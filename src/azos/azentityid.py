@@ -7,7 +7,7 @@ Copyright (C) 20023 Azist, MIT License
 
 import json
 
-from azexceptions import AzosError
+from .azexceptions import AzosError
 from azatom import Atom
 
 TP_PREFIX = "@"
@@ -20,12 +20,12 @@ def tryparse(val: str) -> tuple | None:
     """
     if val == None:
         return None
-    
+
     vlen = len(val)
 
     if vlen < 4:
         return None
-    
+
     # Todo: Finish
     return (sys, type, schema, address)
 
@@ -43,19 +43,19 @@ class EntityId:
 
     The concept is somewhat similar to an "URI" in its intended purpose, as it identifies objects by an "Address"
     string which is interpreted in a scope of "Type/Schema", which in turn is in the scope of a "System".
-   
+
     As a string, an EntityId is formatted like: `type.schema@system::address`, for example: `car.vin@dealer::1A8987339HBz0909W874`
     vs `boat.license@dealer::I9973OD`. The system qualifier is required, but type (and schema) qualifier is optional, which denotes "default type"
     for example: `dealer::I9973OD` is a valid EntityId pointing to a "dealer" system "car" type with "license" address schema by default.
-    
+
     The optional schema sub-qualifier defines the "schema" of addressing used per type, this way you can identify the same entity types within a system with
     different addressing schemas
     """
-   
+
     @classmethod
     def from_value(cls, strval):
         """Class method to create EntityId by parsing a string value
-        
+
         Throws AzosError if the value is not parsable.
 
         If you need conditional parsing you can call `tryparse()` with conditional
@@ -63,7 +63,7 @@ class EntityId:
         """
         eid = parse(strval)
         return cls(eid[0], eid[1], eid[2], eid[3])
-    
+
     @classmethod
     def from_components(cls, components):
         """Class method to create EntityId from components tuple
@@ -79,27 +79,27 @@ class EntityId:
 
     def __str__(self):
         return self.value
-    
+
     def __repr__(self):
         return f"EntityId(`{self.get_value()}`)"
-    
+
     def __eq__(self, other: object) -> bool:
         return self._system  == other.system and \
                self._type    == other.type and \
                self._schema  == other.schema and \
                self._address == other.address
-    
+
     def __hash__(self):
         return hash(self._system) ^ hash(self._type) ^ hash(self._schema) ^ hash(self._address)
-    
+
     def get_value(self) -> str:
         if self._type.is_zero:
             return f"{self._system}{SYS_PREFIX}{self._address}"
         if self._schema.is_zero:
             return f"{self._type}{TP_PREFIX}{self._system}{SYS_PREFIX}{self._address}"
-        
+
         return f"{self._type}{SCHEMA_DIV}{self._schema}{TP_PREFIX}{self._system}{SYS_PREFIX}{self._address}"
-    
+
     def get_components(self) -> tuple:
         """Returns components of entity id a s a tuple of (sys,type,schema,address)
 
@@ -138,4 +138,4 @@ if __name__ == "__main__":
     print(a.is_composite_address)
     print(a.get_composite_address())
     print(a.components)
-    
+
