@@ -23,7 +23,7 @@ except ImportError as cause:
 
 
 # Enriches our logs with OTEL cross correlation tokens
-# this gets wired up into logging so you dont need to call this ever
+# this gets wired up into logging so you don't need to call this ever
 def log_otel_enricher(fmt, record, log_data):
     current_span = trace.get_current_span()
     span_context = current_span.get_span_context()
