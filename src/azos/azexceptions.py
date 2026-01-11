@@ -1,6 +1,6 @@
 """Provides custom exception related to Azos interop
 
-Copyright (C) 20023 Azist, MIT License
+Copyright (C) 2023 Azist, MIT License
 
 """
 __all__ = ["AzosError"]

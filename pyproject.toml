@@ -56,3 +56,13 @@ build-backend = "hatchling.build"
 # This ensures 'uv' looks for your code in the 'src' directory
 [tool.hatch.build.targets.wheel]
 packages = ["src/azos"]
+
+# --------------------------------------------------------
+# PYTEST CONFIGURATION
+# --------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+python_files = ["*_tests.py", "test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
