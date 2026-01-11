@@ -19,7 +19,10 @@ classifiers = [
 
 # Core dependencies (installed by default)
 dependencies = [
-# "requests>=2.0.0",  # Example: Everyone using 'azos' gets this
+    # "requests>=2.0.0",  # Example: Everyone using 'azos' gets this
+    "opentelemetry-api>=1.39.1",
+    "opentelemetry-exporter-otlp>=1.39.1",
+    "opentelemetry-sdk>=1.39.1",
 ]
 
 # --------------------------------------------------------

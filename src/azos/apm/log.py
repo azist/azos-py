@@ -1,5 +1,5 @@
 """Provides structured logging support
-Copyright (C) 2025 Azist, MIT License
+Copyright (C) 2025-2026 Azist, MIT License
 
 """
 import sys
@@ -11,6 +11,8 @@ import contextvars
 
 from typing import Callable
 from azos.application import Application
+from azos.conio import ANSIColors
+
 
 LOG_SCHEMA_VERSION = 0
 """Current log schema implementation version"""
@@ -179,20 +181,75 @@ class AzLogRecordJsonFormatter(AzLogRecordFormatter):
         return json.dumps(log_record, separators=(',', ':'))
 
 
-# ++++++++++++++++++++++ TYT ostanovilsya
+class AzLogRecordVisualFormatter(AzLogRecordFormatter):
+    # Map logging level constants to literal color names
+    COLOR_MAP = {
+        logging.DEBUG: "BLUE",
+        logging.INFO: "GREEN",
+        logging.WARNING: "YELLOW",
+        logging.ERROR: "RED",
+        logging.CRITICAL: "PURPLE",
+    }
+
+    def do_format(self, record: logging.LogRecord, log_record: dict):
+        """Formats for a rich visual presentation in dev console"""
+        segs = []
+        fg1 = ANSIColors.color(self.COLOR_MAP.get(record.levelno, 'WHITE'), bright=True, fg=True)
+        fg2 = ANSIColors.color(self.COLOR_MAP.get(record.levelno, 'WHITE'), bright=False, fg=True)
+
+        lvl = f"{fg1}╔═╣{log_record['lvl']}╠══╣{log_record['id'][:8]}║{ANSIColors.RESET}"
+        msg = f"{fg1}╚═>{fg2}{log_record['msg']}{ANSIColors.RESET}"
+        otl = log_record.get("oti")
+        if otl:
+            otl = (
+                f"{ANSIColors.FG_YELLOW}■ {ANSIColors.FG_BRIGHT_MAGENTA}{otl}{ANSIColors.FG_GRAY}-"
+                f"{ANSIColors.FG_CYAN}{log_record.get('ots','none')}{ANSIColors.RESET}"
+            )
+        else:
+            otl = ""
+
+        segs.append(f"{lvl} {ANSIColors.FG_GRAY} {log_record['lts']} ■ {ANSIColors.FG_BRIGHT_WHITE}{log_record['chn']}{ANSIColors.RESET}")
+        segs.append(f"«{log_record['nm']}» {ANSIColors.FG_GRAY}{log_record['frm']}{ANSIColors.RESET}")
+        segs.append(f"{ANSIColors.FG_CYAN}{log_record['rel'][:8] if log_record.get('rel') else ''}{ANSIColors.RESET}")
+        segs.append(f"{otl}")
+        segs.append(f"{msg}")
+
+        if "d" in log_record:
+            js = json.dumps(log_record["d"])
+            segs.append(f" \n {ANSIColors.FG_GRAY}   └─► {js}{ANSIColors.RESET}")
+
+        err = log_record.get("error", None)
+        if err:
+            err = err.replace("\n", f"\n {ANSIColors.FG_BRIGHT_RED}░{ANSIColors.FG_RED}       ")
+            segs.append(f" \n     └─► {err}{ANSIColors.RESET}")
+
+        return "".join(segs)
+
+
+class AzLogRecordTerseFormatter(AzLogRecordVisualFormatter):
+    #todo: implement terse formatter
+    pass
 
 class AzLogStrand(logging.LoggerAdapter):
     """
-    Creates a named log conversation topic optionally grouping all log
-    messages with REL tag and putting them on specified channel
+    Creates a named log conversation topic optionally grouping all log  messages with REL tag and
+    putting them on specified channel
     """
-    def __init__(self, loggerName, rel = None, channel = None):
-        logger = logging.getLogger(loggerName)
-        super().__init__(logger, { })
+    def __init__(self, logger_name: str | None, rel: str | None = None, channel: str | None = None):
+        """
+        Initializes a named logger with optional REL correllation and channel assignment
+
+        :param self: self ref
+        :param logger_name (str | None): case-insensitive logger name (converted to lower case)
+        :param rel (str | None) Optional corrwlation id to be applied to all log messages emittrd by this strand
+        :param channel (str | None): Optional channel name to categorize log messages
+        """
+        logger = logging.getLogger(logger_name.lower()) # case-insensitive
+        super().__init__(logger, {})
 
         #pre-generate ID to be used in correlation
-        self.id = newLogRecordId()
-        self.rel = rel
+        self.strand_id = new_log_id()
+        self.rel = self.strand_id if rel == "self" else rel
         self.channel = channel
 
 
@@ -205,8 +262,10 @@ class AzLogStrand(logging.LoggerAdapter):
         context = self.extra.copy()  if self.extra  else { } # pyright: ignore[reportAttributeAccessIssue]
 
         # 2. Set log thread context
-        if self.rel: context["sys_rel"] = self.rel
-        if self.channel: context["sys_channel"] = self.channel
+        if self.rel:
+            context["sys_rel"] = self.rel
+        if self.channel:
+            context["sys_channel"] = self.channel
 
         # 3. Update with any specific context passed in this log call
         if 'extra' in kwargs:
@@ -229,29 +288,43 @@ class AzLogStrand(logging.LoggerAdapter):
 # hence they lose the context, therefore you need to get your pyspark logger
 # via a call to `get_pyspark_logger(name) -> Logger` from withing your UDF func body
 #warning: do not use __ mangling for Spark UDF teleportation
-def _activate_az_logging():
+def _activate_az_logging() -> None:
+
+  chassis = Application.get_current_instance()
+  conf = chassis.config
+
 
   # one time use Latch
-  if logging.getLogRecordFactory() is az_log_record_factory: return
+  if logging.getLogRecordFactory() is not _az_log_record_factory:
+      logging.setLogRecordFactory(_az_log_record_factory)
 
-  # 1. Set the Factory (Global Change) ---
-  # This is a one-time setup that affects ALL loggers in the process.
-  logging.setLogRecordFactory(az_log_record_factory)
 
-  # 2. Get root logger
+  # Get root logger
   root = logging.getLogger()
   root.setLevel(logging.DEBUG)
 
-  # 3. Create the Handler (StreamHandler directs output to sys.stdout/stderr)
+  mode = ""
+  if conf.has_section(CFG_LOG_SECTION):
+      mode = conf.get(CFG_LOG_SECTION, "mode", fallback="")
+      levels = [(key[len(CFG_LOG_LEVEL_ATTR_PFX):], conf.get(CFG_LOG_SECTION, key, fallback=None))
+                for key in conf.options(CFG_LOG_SECTION) if key.startswith(CFG_LOG_LEVEL_ATTR_PFX)]
+      for one in levels:
+          logging.getLogger(one[0]).setLevel(one[1])
+
+
+  # Create the Handler (StreamHandler directs output to sys.stdout/stderr)
   # We explicitly target sys.stdout for all general logs
   handler = logging.StreamHandler(sys.stdout)
 
-  # 4. Formatter and set to handler
-  # todo: Here access config to set DEV formatter for local workstation use
-  formatter = AzLogRecordJsonFormatter()
+  # Formatter and set to handler
+
+  formatter = AzLogRecordVisualFormatter() if mode == "visual" else \
+                AzLogRecordTerseFormatter() if mode == "terse" else \
+                AzLogRecordJsonFormatter()
+
   handler.setFormatter(formatter)
 
-  # 5. Clear any existing handlers and add the new one
+  # Clear any existing handlers and add the new one
   if root.hasHandlers():
       root.handlers.clear()
 
@@ -266,6 +339,14 @@ def get_pyspark_logger(name: str | None) -> logging.Logger:
     logger = logging.getLogger(f"PySpark::{name}" if name else "PySpark")
     return logger
 
+# Plumbing for Azos Application chassis load event
+def __app_chassis_load():
+    logging.debug("Azos APM Log module re loaded upon app chassis")
+    _activate_az_logging()
+
+
 # Activate globally
+# Install global app chassis hook
+Application.register_global_dependency_callback(__app_chassis_load)
 _activate_az_logging()
 #end.

@@ -23,5 +23,7 @@
          "editorRuler.foreground": "#20a0ff40"
     },
     "editor.mouseWheelZoom": true,
+    "files.trimTrailingWhitespace": true,
+    "editor.renderWhitespace": "all",
     "editor.rulers": [120]
 }
