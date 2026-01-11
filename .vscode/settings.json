@@ -6,6 +6,7 @@
         "./tests"
     ],
     "cSpell.words": [
+        "conio",
         "isdefault",
         "oplog",
         "setuptools"
