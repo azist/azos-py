@@ -17,63 +17,67 @@ def tryparse(val: str) -> tuple | None:
     """Tries to parse a string as EntityId returning a tuple on success or None if val is not parsable
 
     """
-    if val == None:
-        return None
-
-    vlen = len(val)
-
-    if vlen < 4:
-        return None
-
-    # Find the :: separator which divides system/type/schema from address
-    sys_idx = val.find(SYS_PREFIX)
-    if sys_idx == -1:
-        return None
-
-    # Split into prefix (system/type/schema part) and address
-    prefix = val[:sys_idx]
-    address = val[sys_idx + len(SYS_PREFIX):]
-
-    # Address must not be empty
-    if not address:
-        return None
-
-    # Find @ separator which divides type/schema from system
-    tp_idx = prefix.find(TP_PREFIX)
-
-    if tp_idx == -1:
-        # No type/schema qualifier, only system (format: system::address)
-        if not prefix:
-            return None
-        sys = Atom(prefix)
-        type = Atom(0)
-        schema = Atom(0)
-    else:
-        # Has type/schema part (format: type.schema@system::address or type@system::address)
-        type_schema_part = prefix[:tp_idx]
-        system_part = prefix[tp_idx + len(TP_PREFIX):]
-
-        if not system_part or not type_schema_part:
+    try:
+        if val == None:
             return None
 
-        sys = Atom(system_part)
+        vlen = len(val)
 
-        # Split type and schema
-        schema_idx = type_schema_part.find(SCHEMA_DIV)
-        if schema_idx == -1:
-            # No schema (format: type@system::address)
-            type = Atom(type_schema_part)
+        if vlen < 4:
+            return None
+
+        # Find the :: separator which divides system/type/schema from address
+        sys_idx = val.find(SYS_PREFIX)
+        if sys_idx == -1:
+            return None
+
+        # Split into prefix (system/type/schema part) and address
+        prefix = val[:sys_idx]
+        address = val[sys_idx + len(SYS_PREFIX):]
+
+        # Address must not be empty
+        if not address:
+            return None
+
+        # Find @ separator which divides type/schema from system
+        tp_idx = prefix.find(TP_PREFIX)
+
+        if tp_idx == -1:
+            # No type/schema qualifier, only system (format: system::address)
+            if not prefix:
+                return None
+            sys = Atom(prefix)
+            type = Atom(0)
             schema = Atom(0)
         else:
-            # Full format (type.schema@system::address)
-            type_part = type_schema_part[:schema_idx]
-            schema_part = type_schema_part[schema_idx + len(SCHEMA_DIV):]
-            if not type_part or not schema_part:
-                return None
-            type = Atom(type_part)
-            schema = Atom(schema_part)
+            # Has type/schema part (format: type.schema@system::address or type@system::address)
+            type_schema_part = prefix[:tp_idx]
+            system_part = prefix[tp_idx + len(TP_PREFIX):]
 
-    return (sys, type, schema, address)
+            if not system_part or not type_schema_part:
+                return None
+
+            sys = Atom(system_part)
+
+            # Split type and schema
+            schema_idx = type_schema_part.find(SCHEMA_DIV)
+            if schema_idx == -1:
+                # No schema (format: type@system::address)
+                type = Atom(type_schema_part)
+                schema = Atom(0)
+            else:
+                # Full format (type.schema@system::address)
+                type_part = type_schema_part[:schema_idx]
+                schema_part = type_schema_part[schema_idx + len(SCHEMA_DIV):]
+                if not type_part or not schema_part:
+                    return None
+                type = Atom(type_part)
+                schema = Atom(schema_part)
+
+        return (sys, type, schema, address)
+    except AzosError:
+        # Invalid Atom construction (invalid characters or too long)
+        return None
 
 def parse(val: str) -> tuple:
     """Tries to parse a string as EntityId returning a tuple on success or throwing AzosError
@@ -203,11 +207,4 @@ class EntityId:
             return json.loads(self._address)
         except Exception as cause:
             raise AzosError("EntityId contains invalid composite address", "entityid", f"get_composite_address()") from cause
-
-if __name__ == "__main__":
-    a = EntityId(Atom("sys"), Atom("tp"), Atom("sch"), "o{\"a\": 1}")
-    print(hash(a))
-    print(a.is_composite_address)
-    print(a.get_composite_address())
-    print(a.components)
 

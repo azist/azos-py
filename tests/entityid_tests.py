@@ -141,6 +141,84 @@ def test_tryparse_invalid_12():
     assert result is None
 
 
+def test_tryparse_invalid_13():
+    """Test tryparse returns None for invalid atom characters in type"""
+    result = tryparse("^^@system::address")
+    assert result is None
+
+
+def test_tryparse_invalid_14():
+    """Test tryparse returns None for invalid atom characters in system"""
+    result = tryparse("type@!!invalid::address")
+    assert result is None
+
+
+def test_tryparse_invalid_15():
+    """Test tryparse returns None for invalid atom characters in schema"""
+    result = tryparse("type.$$bad@system::address")
+    assert result is None
+
+
+def test_tryparse_invalid_16():
+    """Test tryparse returns None for invalid atom with special characters"""
+    result = tryparse("type@sys##tem::address")
+    assert result is None
+
+
+def test_tryparse_invalid_17():
+    """Test tryparse returns None for atom with spaces"""
+    result = tryparse("type name@system::address")
+    assert result is None
+
+
+def test_tryparse_invalid_18():
+    """Test tryparse returns None for system atom with spaces"""
+    result = tryparse("type@sys tem::address")
+    assert result is None
+
+
+def test_tryparse_invalid_19():
+    """Test tryparse returns None for atom longer than 8 characters"""
+    result = tryparse("verylongtype@system::address")
+    assert result is None
+
+
+def test_tryparse_invalid_20():
+    """Test tryparse returns None for system atom longer than 8 characters"""
+    result = tryparse("type@verylongsystem::address")
+    assert result is None
+
+
+def test_tryparse_invalid_21():
+    """Test tryparse returns None for schema atom longer than 8 characters"""
+    result = tryparse("type.verylongschema@system::address")
+    assert result is None
+
+
+def test_tryparse_invalid_22():
+    """Test tryparse returns None for multiple invalid atoms"""
+    result = tryparse("!!invalid.$$bad@##wrong::address")
+    assert result is None
+
+
+def test_tryparse_invalid_23():
+    """Test tryparse returns None for system with invalid characters"""
+    result = tryparse("car.vin@deal$er::ABC123")
+    assert result is None
+
+
+def test_tryparse_invalid_24():
+    """Test tryparse returns None for type with punctuation"""
+    result = tryparse("car!@dealer::ABC123")
+    assert result is None
+
+
+def test_tryparse_invalid_25():
+    """Test tryparse returns None for schema with parentheses"""
+    result = tryparse("car.(vin)@dealer::ABC123")
+    assert result is None
+
+
 # Tests for parse function
 def test_parse_01():
     """Test parse with full format: type.schema@system::address"""
@@ -221,6 +299,34 @@ def test_parse_invalid_06():
     """Test parse raises AzosError for empty string"""
     with pytest.raises(AzosError) as exc_info:
         parse("")
+    assert "not parsable" in str(exc_info.value)
+
+
+def test_parse_invalid_07():
+    """Test parse raises AzosError for invalid atom characters in type"""
+    with pytest.raises(AzosError) as exc_info:
+        parse("^^@system::address")
+    assert "not parsable" in str(exc_info.value)
+
+
+def test_parse_invalid_08():
+    """Test parse raises AzosError for invalid atom characters in system"""
+    with pytest.raises(AzosError) as exc_info:
+        parse("type@!!invalid::address")
+    assert "not parsable" in str(exc_info.value)
+
+
+def test_parse_invalid_09():
+    """Test parse raises AzosError for atom longer than 8 characters"""
+    with pytest.raises(AzosError) as exc_info:
+        parse("verylongtype@system::address")
+    assert "not parsable" in str(exc_info.value)
+
+
+def test_parse_invalid_10():
+    """Test parse raises AzosError for system atom with spaces"""
+    with pytest.raises(AzosError) as exc_info:
+        parse("type@sys tem::address")
     assert "not parsable" in str(exc_info.value)
 
 
@@ -601,3 +707,51 @@ def test_integration_05():
     assert original == recreated
     assert original.value == recreated.value
     assert hash(original) == hash(recreated)
+
+
+# Integration tests using parse/from_value instead of constructor
+def test_integration_parse_01():
+    """Test dealer car VIN scenario from docstring using parse"""
+    eid = EntityId.from_value("car.vin@dealer::1A8987339HBz0909W874")
+    assert eid.value == "car.vin@dealer::1A8987339HBz0909W874"
+    assert str(eid) == "car.vin@dealer::1A8987339HBz0909W874"
+
+
+def test_integration_parse_02():
+    """Test dealer boat license scenario from docstring using parse"""
+    eid = EntityId.from_value("boat.license@dealer::I9973OD")
+    assert eid.value == "boat.license@dealer::I9973OD"
+
+
+def test_integration_parse_03():
+    """Test default type scenario from docstring using parse"""
+    eid = EntityId.from_value("dealer::I9973OD")
+    assert eid.value == "dealer::I9973OD"
+
+
+def test_integration_parse_04():
+    """Test EntityId with composite address containing multiple fields using parse"""
+    composite = '{"vin": "1A8987339HBz0909W874", "plate": "ABC123", "state": "CA"}'
+    eid = EntityId.from_value(f'vehicle.full@dmv::{composite}')
+
+    assert eid.is_composite_address
+    addr = eid.get_composite_address()
+    assert addr["vin"] == "1A8987339HBz0909W874"
+    assert addr["plate"] == "ABC123"
+    assert addr["state"] == "CA"
+
+
+def test_integration_parse_05():
+    """Test creating EntityId from string and verifying round-trip using parse"""
+    original_str = "type.schema@sys::address"
+    eid = EntityId.from_value(original_str)
+
+    # Verify round-trip
+    assert eid.value == original_str
+
+    # Create another from the value property
+    recreated = EntityId.from_value(eid.value)
+
+    assert eid == recreated
+    assert eid.value == recreated.value
+    assert hash(eid) == hash(recreated)
