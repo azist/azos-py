@@ -1,8 +1,227 @@
 import pytest
 import json
-from azos.azentityid import EntityId
+from azos.azentityid import EntityId, tryparse, parse
 from azos.azatom import Atom
 from azos.azexceptions import AzosError
+
+
+# Tests for tryparse function
+def test_tryparse_01():
+    """Test tryparse with full format: type.schema@system::address"""
+    result = tryparse("car.vin@dealer::1A8987339HBz0909W874")
+    assert result is not None
+    sys, type, schema, address = result
+    assert sys == Atom("dealer")
+    assert type == Atom("car")
+    assert schema == Atom("vin")
+    assert address == "1A8987339HBz0909W874"
+
+
+def test_tryparse_02():
+    """Test tryparse with type only (no schema): type@system::address"""
+    result = tryparse("car@dealer::ABC123")
+    assert result is not None
+    sys, type, schema, address = result
+    assert sys == Atom("dealer")
+    assert type == Atom("car")
+    assert schema.is_zero
+    assert address == "ABC123"
+
+
+def test_tryparse_03():
+    """Test tryparse with system only (no type/schema): system::address"""
+    result = tryparse("dealer::I9973OD")
+    assert result is not None
+    sys, type, schema, address = result
+    assert sys == Atom("dealer")
+    assert type.is_zero
+    assert schema.is_zero
+    assert address == "I9973OD"
+
+
+def test_tryparse_04():
+    """Test tryparse with composite JSON address"""
+    result = tryparse('sys@system::{"id": 123, "name": "test"}')
+    assert result is not None
+    sys, type, schema, address = result
+    assert sys == Atom("system")
+    assert type == Atom("sys")
+    assert schema.is_zero
+    assert address == '{"id": 123, "name": "test"}'
+
+
+def test_tryparse_05():
+    """Test tryparse with boat.license example from docstring"""
+    result = tryparse("boat.license@dealer::I9973OD")
+    assert result is not None
+    sys, type, schema, address = result
+    assert sys == Atom("dealer")
+    assert type == Atom("boat")
+    assert schema == Atom("license")
+    assert address == "I9973OD"
+
+
+def test_tryparse_06():
+    """Test tryparse with complex address containing special characters"""
+    result = tryparse("type.schema@sys::addr-with_special.chars123")
+    assert result is not None
+    sys, type, schema, address = result
+    assert address == "addr-with_special.chars123"
+
+
+def test_tryparse_invalid_01():
+    """Test tryparse returns None for string without :: separator"""
+    result = tryparse("invalid_string")
+    assert result is None
+
+
+def test_tryparse_invalid_02():
+    """Test tryparse returns None for None input"""
+    result = tryparse(None)
+    assert result is None
+
+
+def test_tryparse_invalid_03():
+    """Test tryparse returns None for very short string (less than 4 chars)"""
+    result = tryparse("a:b")
+    assert result is None
+
+
+def test_tryparse_invalid_04():
+    """Test tryparse returns None for empty address"""
+    result = tryparse("system::")
+    assert result is None
+
+
+def test_tryparse_invalid_05():
+    """Test tryparse returns None for empty system"""
+    result = tryparse("::address")
+    assert result is None
+
+
+def test_tryparse_invalid_06():
+    """Test tryparse returns None for empty type when @ present"""
+    result = tryparse("@system::address")
+    assert result is None
+
+
+def test_tryparse_invalid_07():
+    """Test tryparse returns None for empty system when @ present"""
+    result = tryparse("type@::address")
+    assert result is None
+
+
+def test_tryparse_invalid_08():
+    """Test tryparse returns None for empty type part in type.schema"""
+    result = tryparse(".schema@system::address")
+    assert result is None
+
+
+def test_tryparse_invalid_09():
+    """Test tryparse returns None for empty schema part in type.schema"""
+    result = tryparse("type.@system::address")
+    assert result is None
+
+
+def test_tryparse_invalid_10():
+    """Test tryparse returns None for string with only @"""
+    result = tryparse("@")
+    assert result is None
+
+
+def test_tryparse_invalid_11():
+    """Test tryparse returns None for string with only ::"""
+    result = tryparse("::")
+    assert result is None
+
+
+def test_tryparse_invalid_12():
+    """Test tryparse returns None for empty string"""
+    result = tryparse("")
+    assert result is None
+
+
+# Tests for parse function
+def test_parse_01():
+    """Test parse with full format: type.schema@system::address"""
+    result = parse("car.vin@dealer::1A8987339HBz0909W874")
+    sys, type, schema, address = result
+    assert sys == Atom("dealer")
+    assert type == Atom("car")
+    assert schema == Atom("vin")
+    assert address == "1A8987339HBz0909W874"
+
+
+def test_parse_02():
+    """Test parse with type only (no schema): type@system::address"""
+    result = parse("car@dealer::ABC123")
+    sys, type, schema, address = result
+    assert sys == Atom("dealer")
+    assert type == Atom("car")
+    assert schema.is_zero
+    assert address == "ABC123"
+
+
+def test_parse_03():
+    """Test parse with system only (no type/schema): system::address"""
+    result = parse("dealer::I9973OD")
+    sys, type, schema, address = result
+    assert sys == Atom("dealer")
+    assert type.is_zero
+    assert schema.is_zero
+    assert address == "I9973OD"
+
+
+def test_parse_04():
+    """Test parse with composite JSON address"""
+    result = parse('vehicle@registry::{"vin":"ABC123","year":2020}')
+    sys, type, schema, address = result
+    assert sys == Atom("registry")
+    assert type == Atom("vehicle")
+    assert address == '{"vin":"ABC123","year":2020}'
+
+
+def test_parse_invalid_01():
+    """Test parse raises AzosError for invalid string without ::"""
+    with pytest.raises(AzosError) as exc_info:
+        parse("invalid_string")
+    assert "not parsable" in str(exc_info.value)
+    assert exc_info.value.topic == "entityid"
+
+
+def test_parse_invalid_02():
+    """Test parse raises AzosError for None input"""
+    with pytest.raises(AzosError) as exc_info:
+        parse(None)
+    assert "not parsable" in str(exc_info.value)
+
+
+def test_parse_invalid_03():
+    """Test parse raises AzosError for empty address"""
+    with pytest.raises(AzosError) as exc_info:
+        parse("system::")
+    assert "not parsable" in str(exc_info.value)
+
+
+def test_parse_invalid_04():
+    """Test parse raises AzosError for empty system"""
+    with pytest.raises(AzosError) as exc_info:
+        parse("::address")
+    assert "not parsable" in str(exc_info.value)
+
+
+def test_parse_invalid_05():
+    """Test parse raises AzosError for malformed type.schema"""
+    with pytest.raises(AzosError) as exc_info:
+        parse(".schema@system::address")
+    assert "not parsable" in str(exc_info.value)
+
+
+def test_parse_invalid_06():
+    """Test parse raises AzosError for empty string"""
+    with pytest.raises(AzosError) as exc_info:
+        parse("")
+    assert "not parsable" in str(exc_info.value)
 
 
 # Tests for EntityId constructor and basic properties
@@ -154,6 +373,77 @@ def test_from_components_02():
     eid1 = EntityId.from_components(components)
     eid2 = EntityId(Atom("dealer"), Atom("car"), Atom("vin"), "ABC123")
     assert eid1 == eid2
+
+
+# Tests for from_value class method
+def test_from_value_01():
+    """Test from_value with full format: type.schema@system::address"""
+    eid = EntityId.from_value("car.vin@dealer::1A8987339HBz0909W874")
+    assert eid.system == Atom("dealer")
+    assert eid.type == Atom("car")
+    assert eid.schema == Atom("vin")
+    assert eid.address == "1A8987339HBz0909W874"
+    assert eid.value == "car.vin@dealer::1A8987339HBz0909W874"
+
+
+def test_from_value_02():
+    """Test from_value with type only (no schema): type@system::address"""
+    eid = EntityId.from_value("boat@marina::BOAT123")
+    assert eid.system == Atom("marina")
+    assert eid.type == Atom("boat")
+    assert eid.schema.is_zero
+    assert eid.address == "BOAT123"
+
+
+def test_from_value_03():
+    """Test from_value with system only: system::address"""
+    eid = EntityId.from_value("dealer::DEFAULT001")
+    assert eid.system == Atom("dealer")
+    assert eid.type.is_zero
+    assert eid.schema.is_zero
+    assert eid.address == "DEFAULT001"
+
+
+def test_from_value_04():
+    """Test from_value with composite JSON address"""
+    eid = EntityId.from_value('vehicle@dmv::{"vin":"ABC","plate":"XYZ"}')
+    assert eid.system == Atom("dmv")
+    assert eid.type == Atom("vehicle")
+    assert eid.is_composite_address
+    comp = eid.get_composite_address()
+    assert comp["vin"] == "ABC"
+    assert comp["plate"] == "XYZ"
+
+
+def test_from_value_05():
+    """Test from_value round-trip: create from value, get value, parse again"""
+    original_str = "boat.license@dealer::I9973OD"
+    eid1 = EntityId.from_value(original_str)
+    value_str = eid1.value
+    eid2 = EntityId.from_value(value_str)
+    assert eid1 == eid2
+    assert eid1.value == eid2.value
+
+
+def test_from_value_invalid_01():
+    """Test from_value raises AzosError for invalid string"""
+    with pytest.raises(AzosError) as exc_info:
+        EntityId.from_value("invalid_string")
+    assert "not parsable" in str(exc_info.value)
+
+
+def test_from_value_invalid_02():
+    """Test from_value raises AzosError for None"""
+    with pytest.raises(AzosError) as exc_info:
+        EntityId.from_value(None)
+    assert "not parsable" in str(exc_info.value)
+
+
+def test_from_value_invalid_03():
+    """Test from_value raises AzosError for malformed string"""
+    with pytest.raises(AzosError) as exc_info:
+        EntityId.from_value("type@::address")
+    assert "not parsable" in str(exc_info.value)
 
 
 # Tests for is_composite_address property
