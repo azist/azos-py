@@ -2,7 +2,8 @@
 
 > This file contains general instructions for all agents: **Gemini, Claude Code, and Copilot**
 
-> [!WARNING] You may NEVER EVER make any file system changes in any paths HIGHER than this project root,
+> [!warning]
+> You may NEVER EVER make any file system changes in any paths HIGHER than this project root,
 > that is in any direct or indirect parent directory of this directory or file located in such directory.
 > Project root is where this THIS VERY FILE is located and you may never change anything above it. You may only
 > change files and directories which are logically on a CHILD path of THIS directory
@@ -38,7 +39,8 @@ Located in [src/azos/azatom.py](src/azos/azatom.py). Atoms encode 1-8 character 
 
 **Usage Pattern**:
 
-> [!important] The whole point of atoms is to NOT allocate/encode them all the time (e.g. in loops)
+> [!important]
+> The whole point of atoms is to NOT allocate/encode them all the time (e.g. in loops)
 > but use system constants effectively getting rid of strings and using integers instead.
 
 ```python
