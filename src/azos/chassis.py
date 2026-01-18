@@ -18,7 +18,7 @@ DEFAULT_APP_ID = "azapp"
 """Default application id which is used when no chassis is allocated"""
 
 
-class Application:
+class AppChassis:
     """
     Application chassis pattern provides global boilerplate for app instance identification,
     logical host name mapping and configuration root. It is a singleton object which get initialized
@@ -29,29 +29,29 @@ class Application:
         approach to application architecture
     """
 
-    __s_default: "Application"
-    __s_current: "Application"
+    __s_default: "AppChassis"
+    __s_current: "AppChassis"
     __s_global_dependency_callbacks: List[Callable] = []
 
     @staticmethod
     def register_global_dependency_callback(callback: Callable):
         """Registers global dependency callback function if it is not yet registered"""
-        if callback not in Application.__s_global_dependency_callbacks:
-          Application.__s_global_dependency_callbacks.append(callback)
+        if callback not in AppChassis.__s_global_dependency_callbacks:
+          AppChassis.__s_global_dependency_callbacks.append(callback)
 
     @staticmethod
-    def get_default_instance() -> "Application":
+    def get_default_instance() -> "AppChassis":
       """Returns the ever-present default Application class instance"""
-      return Application.__s_default
+      return AppChassis.__s_default
 
     @staticmethod
-    def get_current_instance() -> "Application":
+    def get_current_instance() -> "AppChassis":
       """
       Returns the current Application singleton which was allocated the last.
       If not explicit allocation was ever made then the default instance is returned
       """
-      current = Application.__s_current
-      return current if current else Application.__s_default
+      current = AppChassis.__s_current
+      return current if current else AppChassis.__s_default
 
     def __init__(self,
                  app_id: str,
@@ -66,15 +66,15 @@ class Application:
        self._config = self._load_config(config) # use the supplied one or load co-located file
        self._host = platform.node()
 
-       if not Application.__s_default:
-          Application.__s_default = self
+       if not AppChassis.__s_default:
+          AppChassis.__s_default = self
           self._isdefault = True
        else:
-          Application.__s_current = self
+          AppChassis.__s_current = self
           self._isdefault = False
 
        # Notify all dependencies
-       for callback in Application.__s_global_dependency_callbacks:
+       for callback in AppChassis.__s_global_dependency_callbacks:
           if callable(callback):
              callback()
 
@@ -151,4 +151,4 @@ class Application:
 
 
 # Allocate default instance
-Application(DEFAULT_APP_ID, __file__)
+AppChassis(DEFAULT_APP_ID, __file__)

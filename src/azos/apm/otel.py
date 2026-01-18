@@ -3,7 +3,7 @@ Azos Open Telemetry Module
 Copyright (C) 2026 Azist, MIT License
 """
 from . import log
-from azos.application import Application
+from azos.chassis import AppChassis
 
 try:
     from opentelemetry import trace

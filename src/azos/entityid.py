@@ -6,8 +6,8 @@ Copyright (C) 2023 Azist, MIT License
 
 import json
 
-from .azexceptions import AzosError
-from .azatom import Atom
+from .exceptions import AzosError
+from .atom import Atom
 
 TP_PREFIX = "@"
 SCHEMA_DIV = "."

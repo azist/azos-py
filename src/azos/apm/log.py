@@ -10,7 +10,7 @@ import datetime
 import contextvars
 
 from typing import Callable
-from azos.application import Application
+from azos.chassis import AppChassis
 from azos.conio import ANSIColors, mix
 
 
@@ -68,7 +68,7 @@ class AzLogRecord(logging.LogRecord):
         finally:
           _ts_log_id.set(None)
 
-        chassis = Application.get_current_instance()
+        chassis = AppChassis.get_current_instance()
         self.sys_app = chassis.app
         self.sys_app_inst = chassis.instance_tag
         self.sys_host = chassis.host
@@ -290,7 +290,7 @@ class AzLogStrand(logging.LoggerAdapter):
 #warning: do not use __ mangling for Spark UDF teleportation
 def _activate_az_logging() -> None:
 
-  chassis = Application.get_current_instance()
+  chassis = AppChassis.get_current_instance()
   conf = chassis.config
 
 
@@ -348,6 +348,6 @@ def __app_chassis_load():
 
 # Activate globally
 # Install global app chassis hook
-Application.register_global_dependency_callback(__app_chassis_load)
+AppChassis.register_global_dependency_callback(__app_chassis_load)
 _activate_az_logging()
 #end.
