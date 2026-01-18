@@ -230,7 +230,7 @@ class AzLogRecordTerseFormatter(AzLogRecordVisualFormatter):
     #todo: implement terse formatter
     pass
 
-class AzLogStrand(logging.LoggerAdapter):
+class LogStrand(logging.LoggerAdapter):
     """
     Creates a named log conversation topic optionally grouping all log  messages with REL tag and
     putting them on specified channel
