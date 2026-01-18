@@ -1,8 +1,8 @@
 import pytest
 import json
-from azos.azentityid import EntityId, tryparse, parse
-from azos.azatom import Atom
-from azos.azexceptions import AzosError
+from azos.entityid import EntityId, tryparse, parse
+from azos.atom import Atom
+from azos.exceptions import AzosError
 
 
 # Tests for tryparse function
