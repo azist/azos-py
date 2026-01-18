@@ -29,8 +29,8 @@ class AppChassis:
         approach to application architecture
     """
 
-    __s_default: "AppChassis"
-    __s_current: "AppChassis"
+    __s_default: "AppChassis" = None
+    __s_current: "AppChassis" = None
     __s_global_dependency_callbacks: List[Callable] = []
 
     @staticmethod
