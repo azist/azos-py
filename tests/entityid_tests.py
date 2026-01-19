@@ -755,3 +755,373 @@ def test_integration_parse_05():
     assert eid == recreated
     assert eid.value == recreated.value
     assert hash(eid) == hash(recreated)
+
+
+# Edge case tests for multiple separators
+def test_tryparse_edge_multiple_at():
+    """Test tryparse returns None for multiple @ symbols"""
+    result = tryparse("type@sys@extra::addr")
+    assert result is None
+
+
+def test_tryparse_edge_multiple_dots():
+    """Test tryparse returns None for multiple dots in type.schema"""
+    result = tryparse("type.schema.extra@sys::addr")
+    assert result is None
+
+
+def test_tryparse_edge_address_with_double_colon():
+    """Test tryparse allows :: in the address part after the separator"""
+    result = tryparse("sys::addr::withcolons")
+    assert result is not None
+    sys, type, schema, address = result
+    assert sys == Atom("sys")
+    assert type.is_zero
+    assert schema.is_zero
+    assert address == "addr::withcolons"
+
+
+def test_tryparse_edge_address_with_at():
+    """Test tryparse allows @ in the address part after the separator"""
+    result = tryparse("sys::addr@with@atsigns")
+    assert result is not None
+    sys, type, schema, address = result
+    assert address == "addr@with@atsigns"
+
+
+def test_tryparse_edge_address_with_dots():
+    """Test tryparse allows dots in the address part after the separator"""
+    result = tryparse("sys::addr.with.dots")
+    assert result is not None
+    sys, type, schema, address = result
+    assert address == "addr.with.dots"
+
+
+# Edge case tests for whitespace
+def test_tryparse_edge_leading_whitespace():
+    """Test tryparse returns None for leading whitespace"""
+    result = tryparse(" sys::addr")
+    assert result is None
+
+
+def test_tryparse_edge_trailing_whitespace_in_address():
+    """Test tryparse preserves trailing whitespace in address"""
+    result = tryparse("sys::addr ")
+    assert result is not None
+    sys, type, schema, address = result
+    assert address == "addr "
+
+
+def test_tryparse_edge_whitespace_in_address():
+    """Test tryparse allows whitespace within address"""
+    result = tryparse("sys::addr with spaces")
+    assert result is not None
+    sys, type, schema, address = result
+    assert address == "addr with spaces"
+
+
+def test_tryparse_edge_tabs_in_address():
+    """Test tryparse allows tabs within address"""
+    result = tryparse("sys::addr\twith\ttabs")
+    assert result is not None
+    sys, type, schema, address = result
+    assert address == "addr\twith\ttabs"
+
+
+def test_tryparse_edge_newlines_in_address():
+    """Test tryparse allows newlines within address"""
+    result = tryparse("sys::addr\nwith\nnewlines")
+    assert result is not None
+    sys, type, schema, address = result
+    assert address == "addr\nwith\nnewlines"
+
+
+# Edge case tests for unicode and special characters
+def test_tryparse_edge_unicode_in_address():
+    """Test tryparse allows unicode characters in address"""
+    result = tryparse("sys::адрес")
+    assert result is not None
+    sys, type, schema, address = result
+    assert address == "адрес"
+
+
+def test_tryparse_edge_emoji_in_address():
+    """Test tryparse allows emoji in address"""
+    result = tryparse("sys::🚗🔑")
+    assert result is not None
+    sys, type, schema, address = result
+    assert address == "🚗🔑"
+
+
+def test_tryparse_edge_special_chars_in_address():
+    """Test tryparse allows various special characters in address"""
+    result = tryparse("sys::!@#$%^&*()+=[]{}|;:',<>?/")
+    assert result is not None
+    sys, type, schema, address = result
+    assert address == "!@#$%^&*()+=[]{}|;:',<>?/"
+
+
+# Edge case tests for very long addresses
+def test_tryparse_edge_very_long_address():
+    """Test tryparse allows very long addresses (1000+ characters)"""
+    long_addr = "a" * 1000
+    result = tryparse(f"sys::{long_addr}")
+    assert result is not None
+    sys, type, schema, address = result
+    assert address == long_addr
+    assert len(address) == 1000
+
+
+def test_tryparse_edge_very_long_address_with_full_format():
+    """Test tryparse allows very long addresses with full type.schema@system format"""
+    long_addr = "x" * 5000
+    result = tryparse(f"car.vin@dealer::{long_addr}")
+    assert result is not None
+    sys, type, schema, address = result
+    assert sys == Atom("dealer")
+    assert type == Atom("car")
+    assert schema == Atom("vin")
+    assert len(address) == 5000
+
+
+# Edge case tests for EntityId constructor with unusual data
+def test_constructor_edge_empty_address():
+    """Test EntityId constructor allows empty address string"""
+    eid = EntityId(Atom("sys"), Atom("tp"), Atom(0), "")
+    assert eid.address == ""
+    assert eid.value == "tp@sys::"
+
+
+def test_constructor_edge_whitespace_only_address():
+    """Test EntityId constructor allows whitespace-only address"""
+    eid = EntityId(Atom("sys"), Atom("tp"), Atom(0), "   ")
+    assert eid.address == "   "
+    assert eid.value == "tp@sys::   "
+
+
+def test_constructor_edge_newline_address():
+    """Test EntityId constructor allows newline as address"""
+    eid = EntityId(Atom("sys"), Atom("tp"), Atom(0), "\n")
+    assert eid.address == "\n"
+
+
+# Edge case tests for composite address edge cases
+def test_is_composite_address_edge_with_leading_space():
+    """Test is_composite_address returns False when JSON has leading space"""
+    eid = EntityId(Atom("sys"), Atom("tp"), Atom("sch"), ' {"id": 1}')
+    assert not eid.is_composite_address
+
+
+def test_is_composite_address_edge_with_trailing_space():
+    """Test is_composite_address returns False when JSON has trailing space"""
+    eid = EntityId(Atom("sys"), Atom("tp"), Atom("sch"), '{"id": 1} ')
+    assert not eid.is_composite_address
+
+
+def test_is_composite_address_edge_with_extra_content():
+    """Test is_composite_address returns False when content after closing brace"""
+    eid = EntityId(Atom("sys"), Atom("tp"), Atom("sch"), '{"id": 1}extra')
+    assert not eid.is_composite_address
+
+
+def test_is_composite_address_edge_reversed_braces():
+    """Test is_composite_address returns False for reversed braces"""
+    eid = EntityId(Atom("sys"), Atom("tp"), Atom("sch"), '}bad{')
+    assert not eid.is_composite_address
+
+
+def test_is_composite_address_edge_only_opening_brace():
+    """Test is_composite_address returns False for only opening brace"""
+    eid = EntityId(Atom("sys"), Atom("tp"), Atom("sch"), '{incomplete')
+    assert not eid.is_composite_address
+
+
+def test_is_composite_address_edge_only_closing_brace():
+    """Test is_composite_address returns False for only closing brace"""
+    eid = EntityId(Atom("sys"), Atom("tp"), Atom("sch"), 'incomplete}')
+    assert not eid.is_composite_address
+
+
+def test_get_composite_address_edge_malformed_json_01():
+    """Test get_composite_address raises AzosError for malformed JSON - missing quotes"""
+    invalid_json = '{key: value}'
+    eid = EntityId(Atom("sys"), Atom("tp"), Atom("sch"), invalid_json)
+    with pytest.raises(AzosError) as exc_info:
+        eid.get_composite_address()
+    assert "invalid composite address" in str(exc_info.value).lower()
+    assert exc_info.value.topic == "entityid"
+
+
+def test_get_composite_address_edge_malformed_json_02():
+    """Test get_composite_address raises AzosError for malformed JSON - trailing comma"""
+    invalid_json = '{"key": "value",}'
+    eid = EntityId(Atom("sys"), Atom("tp"), Atom("sch"), invalid_json)
+    with pytest.raises(AzosError) as exc_info:
+        eid.get_composite_address()
+    assert "invalid composite address" in str(exc_info.value).lower()
+
+
+def test_get_composite_address_edge_malformed_json_03():
+    """Test get_composite_address raises AzosError for malformed JSON - single quotes"""
+    invalid_json = "{'key': 'value'}"
+    eid = EntityId(Atom("sys"), Atom("tp"), Atom("sch"), invalid_json)
+    with pytest.raises(AzosError) as exc_info:
+        eid.get_composite_address()
+    assert "invalid composite address" in str(exc_info.value).lower()
+
+
+def test_get_composite_address_edge_malformed_json_04():
+    """Test get_composite_address returns None for unclosed braces (not composite)"""
+    invalid_json = '{"key": "value"'
+    eid = EntityId(Atom("sys"), Atom("tp"), Atom("sch"), invalid_json)
+    # This is not considered composite because it doesn't end with }
+    assert not eid.is_composite_address
+    result = eid.get_composite_address()
+    assert result is None
+
+
+def test_get_composite_address_edge_complex_nested():
+    """Test get_composite_address with deeply nested JSON structure"""
+    complex_json = '{"level1": {"level2": {"level3": {"level4": {"data": "deep"}}}}}'
+    eid = EntityId(Atom("sys"), Atom("tp"), Atom("sch"), complex_json)
+    result = eid.get_composite_address()
+    assert result["level1"]["level2"]["level3"]["level4"]["data"] == "deep"
+
+
+def test_get_composite_address_edge_json_with_special_chars():
+    """Test get_composite_address with JSON containing special characters"""
+    json_str = '{"text": "Line1\\nLine2\\tTabbed", "quote": "\\"quoted\\""}'
+    eid = EntityId(Atom("sys"), Atom("tp"), Atom("sch"), json_str)
+    result = eid.get_composite_address()
+    assert "Line1\nLine2\tTabbed" in result["text"]
+    assert result["quote"] == '"quoted"'
+
+
+# Edge case tests for from_components with unusual inputs
+def test_from_components_edge_empty_address():
+    """Test from_components works with empty address"""
+    components = (Atom("sys"), Atom("tp"), Atom(0), "")
+    eid = EntityId.from_components(components)
+    assert eid.address == ""
+    assert eid.value == "tp@sys::"
+
+
+def test_from_components_edge_all_zeros():
+    """Test from_components with zero atoms and empty address"""
+    components = (Atom("sys"), Atom(0), Atom(0), "")
+    eid = EntityId.from_components(components)
+    assert eid.system == Atom("sys")
+    assert eid.type.is_zero
+    assert eid.schema.is_zero
+    assert eid.address == ""
+
+
+# Edge case tests for equality and hashing with edge case data
+def test_eq_edge_with_empty_addresses():
+    """Test equality of EntityIds with empty addresses"""
+    eid1 = EntityId(Atom("sys"), Atom("tp"), Atom(0), "")
+    eid2 = EntityId(Atom("sys"), Atom("tp"), Atom(0), "")
+    assert eid1 == eid2
+
+
+def test_eq_edge_with_whitespace_addresses():
+    """Test inequality of EntityIds with different whitespace in addresses"""
+    eid1 = EntityId(Atom("sys"), Atom("tp"), Atom(0), " ")
+    eid2 = EntityId(Atom("sys"), Atom("tp"), Atom(0), "  ")
+    assert eid1 != eid2
+
+
+def test_hash_edge_with_empty_address():
+    """Test hashing works with empty address"""
+    eid = EntityId(Atom("sys"), Atom("tp"), Atom(0), "")
+    d = {eid: "value"}
+    assert d[eid] == "value"
+
+
+def test_hash_edge_with_unicode_address():
+    """Test hashing works with unicode address"""
+    eid = EntityId(Atom("sys"), Atom("tp"), Atom(0), "адрес")
+    d = {eid: "value"}
+    assert d[eid] == "value"
+
+
+# Edge case tests for parse error messages
+def test_parse_invalid_edge_error_message_includes_value():
+    """Test parse error message includes the invalid value"""
+    invalid_val = "bad_value"
+    with pytest.raises(AzosError) as exc_info:
+        parse(invalid_val)
+    error_msg = str(exc_info.value)
+    assert "not parsable" in error_msg
+    # The error should reference the parse function in frm
+    assert "parse(" in exc_info.value.frm
+
+
+def test_from_value_invalid_edge_error_propagation():
+    """Test from_value propagates parse errors correctly"""
+    # Note: "totally::invalid::format" is actually valid - address can contain ::
+    # The first :: is the separator, everything after is the address
+    # This test verifies that behavior
+    eid = EntityId.from_value("totally::invalid::format")
+    assert eid.system == Atom("totally")
+    assert eid.type.is_zero
+    assert eid.address == "invalid::format"
+
+
+def test_from_value_invalid_edge_empty_system_error():
+    """Test from_value with empty system shows clear error"""
+    with pytest.raises(AzosError) as exc_info:
+        EntityId.from_value("::address")
+    assert "not parsable" in str(exc_info.value)
+
+
+# Edge case tests for value property with edge case data
+def test_value_edge_empty_address():
+    """Test value property with empty address"""
+    eid = EntityId(Atom("sys"), Atom("tp"), Atom(0), "")
+    assert eid.value == "tp@sys::"
+
+
+def test_value_edge_address_with_special_format_chars():
+    """Test value property preserves special format characters in address"""
+    eid = EntityId(Atom("sys"), Atom("tp"), Atom(0), "addr@with::special.chars")
+    assert eid.value == "tp@sys::addr@with::special.chars"
+
+
+def test_value_edge_unicode_address():
+    """Test value property preserves unicode in address"""
+    eid = EntityId(Atom("sys"), Atom("tp"), Atom(0), "адрес")
+    assert eid.value == "tp@sys::адрес"
+
+
+# Edge case tests for round-trip conversions with edge case data
+def test_roundtrip_edge_address_with_separators():
+    """Test round-trip conversion with address containing format separators"""
+    original_str = "car@dealer::plate@state::CA"
+    eid = EntityId.from_value(original_str)
+    assert eid.value == original_str
+    # Verify round-trip
+    eid2 = EntityId.from_value(eid.value)
+    assert eid == eid2
+
+
+def test_roundtrip_edge_complex_composite():
+    """Test round-trip with complex composite address"""
+    composite = '{"id":123,"nested":{"key":"value"},"array":[1,2,3]}'
+    original_str = f"vehicle.full@dmv::{composite}"
+    eid = EntityId.from_value(original_str)
+    assert eid.value == original_str
+    # Verify composite parsing works
+    addr = eid.get_composite_address()
+    assert addr["id"] == 123
+    assert addr["nested"]["key"] == "value"
+    assert addr["array"] == [1, 2, 3]
+
+
+def test_roundtrip_edge_empty_address_via_constructor():
+    """Test that empty address via constructor cannot be parsed back"""
+    eid = EntityId(Atom("sys"), Atom("tp"), Atom(0), "")
+    value_str = eid.value  # "tp@sys::"
+    # This should fail to parse because empty address is not allowed in parsing
+    with pytest.raises(AzosError):
+        EntityId.from_value(value_str)
