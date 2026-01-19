@@ -188,7 +188,7 @@ class AzLogRecordVisualFormatter(AzLogRecordFormatter):
         logging.INFO: "GREEN",
         logging.WARNING: "YELLOW",
         logging.ERROR: "RED",
-        logging.CRITICAL: "PURPLE",
+        logging.CRITICAL: "MAGENTA",
     }
 
     def do_format(self, record: logging.LogRecord, log_record: dict):
@@ -198,12 +198,12 @@ class AzLogRecordVisualFormatter(AzLogRecordFormatter):
         bg1 = mix(self.COLOR_MAP.get(record.levelno, 'WHITE'), bright=True, fg=False)
         fg2 = mix(self.COLOR_MAP.get(record.levelno, 'WHITE'), bright=False, fg=True)
 
-        lvl = f"{fg1}╔═╣{bg1} {log_record['lvl']} {ANSIColors.RESET}{fg1}╠══╣{log_record['id'][:8]}║{ANSIColors.RESET}"
+        lvl = f"{fg1}╔═╣{bg1} {ANSIColors.FG_BLACK}{log_record['lvl']} {ANSIColors.RESET}{fg1}╠═══╣{log_record['id'][:8]}║{ANSIColors.RESET}"
         msg = f"{fg1}╚═> {fg2}{log_record['msg']}{ANSIColors.RESET}"
         otl = log_record.get("oti")
         if otl:
             otl = (
-                f"{fg1}■ {ANSIColors.FG_BRIGHT_MAGENTA}{otl}{ANSIColors.FG_GRAY}-"
+                f" {fg1}■ {ANSIColors.FG_BRIGHT_MAGENTA}{otl}{ANSIColors.FG_GRAY}-"
                 f"{ANSIColors.FG_CYAN}{log_record.get('ots','none')}{ANSIColors.RESET}"
             )
         else:
@@ -213,18 +213,17 @@ class AzLogRecordVisualFormatter(AzLogRecordFormatter):
         segs.append(f"«{log_record['nm']}» {ANSIColors.FG_GRAY}{log_record['frm']}{ANSIColors.RESET}")
         segs.append(f"  {ANSIColors.FG_CYAN}{log_record['rel'][:8] if log_record.get('rel') else ''}{ANSIColors.RESET}")
         segs.append(f"{otl}\n")
-        segs.append(f"{msg}\n")
+        segs.append(f"{msg}")
 
         if "d" in log_record:
             js = json.dumps(log_record["d"])
-            segs.append(f" {fg1}   └─► {fg2}{js}{ANSIColors.RESET}")
+            segs.append(f"\n {fg1}   └─► {fg2}{js}{ANSIColors.RESET}")
 
         err = log_record.get("error", None)
         if err:
-            err = err.replace("\n", f"\n     {ANSIColors.FG_BLUE}░{ANSIColors.FG_RED} ")
-            segs.append(f"   {fg2}└─► {err}{ANSIColors.RESET}")
+            err = err.replace("\n", f"\n     {fg2}·{ANSIColors.FG_RED} ")
+            segs.append(f"\n   {fg2}└─► {err}{ANSIColors.RESET}")
 
-        segs.append(f"\n")
         return "".join(segs)
 
 
