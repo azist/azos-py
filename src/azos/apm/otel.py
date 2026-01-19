@@ -21,8 +21,8 @@ except ImportError as cause:
     raise ImportError(
         "Azos APM Open Telemetry module requires opentelemetry-sdk and related packages. "
         "Please install them via pip: "
-        " pip install opentelemetry-api \ "
-        "             opentelemetry-sdk \ "
+        " pip install opentelemetry-api \\ "
+        "             opentelemetry-sdk \\ "
         "             opentelemetry-exporter-otlp \ "
         "             opentelemetry-instrumentation-requests") from cause
 
@@ -129,13 +129,23 @@ def __activate_otel() -> None:
     trace.set_tracer_provider(provider)
 
     if srv_uri and srv_uri != "":
-        pass
-
+        if srv_uri == "stdio" or srv_uri == "console":
+            exporter = ConsoleSpanExporter()
+            processor = SimpleSpanProcessor(exporter)
+            provider.add_span_processor(processor)
+        elif srv_uri == "log":
+            exporter = LogSpanExporter()
+            processor = SimpleSpanProcessor(exporter)
+            provider.add_span_processor(processor)
+        else:
+            exporter = OTLPSpanExporter(endpoint=srv_uri, insecure=srv_insecure, timeout=srv_timeout_sec)
+            processor = BatchSpanProcessor(exporter)
+            provider.add_span_processor(processor)
 
     # Add OTEL to requests library instrumentation
     RequestsInstrumentor().instrument()
 
-
+# Callback called after app chassis loads
 def __ap_chass_load() -> None:
     __activate_otel()
 
