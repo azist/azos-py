@@ -30,7 +30,7 @@ which is implemented in Azos C# library.
 
 > All Python code will adhere to AGENTS.md instructions in the root here. All generated code will go under `/conf` subdirectory. Only unit tests will go under `/tests/conf...`
 
-Plan the following artifacts, step by step and create individual sub tasks:
+Plan the following artifacts, step by step and create individual sub tasks in the adjacent file called "tasks.md":
 
 1. [ ] Create `nodes.py` with `ConfigNode`, `ConfigSectionNode`, `COnfigAttributeNode` mimicking C# design
 2. [ ] Create `configuration.py` with `Configuration` class that contains the root node exposed via `root` property
