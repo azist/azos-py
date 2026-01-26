@@ -2,5 +2,5 @@
 
 Must include canonical agent instructions in `AGENTS.md`. Apply all those rules.
 
-Additonal Gemini-specific rules (if any) are listed below.
+Additional Gemini-specific rules (if any) are listed below.
 

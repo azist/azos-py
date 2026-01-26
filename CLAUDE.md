@@ -2,6 +2,6 @@
 
 Must include canonical agent instructions in `AGENTS.md`. Apply all those rules.
 
-Additonal Claude-specific rules (if any) are listed below.
+Additional Claude-specific rules (if any) are listed below.
 
 
