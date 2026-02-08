@@ -1,21 +1,97 @@
 """
 Uniform application chassis pattern
 
-Copyright (C) 2023 Azist, MIT License
+Copyright (C) 2023, 2026 Azist, MIT License
 
 """
 import os
+import re
 import uuid
 import platform
 from pathlib import Path
 from configparser import ConfigParser
-from typing import List, Callable
+from typing import List, Optional, Callable, Tuple
 
 ENV_ENVIRONMENT_NAME_VAR = "SKY_ENVIRONMENT"
 """Name of the environment variable which holds Azos/SKY environment name, such as DEV/TEST/PROD"""
 
 DEFAULT_APP_ID = "azapp"
 """Default application id which is used when no chassis is allocated"""
+
+VAR_EXPANSION_PATTERN = re.compile(r'\$\(([^)]+)\)')
+"""Matches $(var) pattern used in config values etc."""
+
+INCLUDE_REX_PATTERN = re.compile(r'^#include<([^\s>]+)>$', re.MULTILINE)
+"""Matches #include<X> file include pragma used with `process_includes()`"""
+
+
+def expand_var_expressions(val: str, resolver: Callable[[str], Tuple[bool, str]] | None = None) -> str:
+    """
+    Expands variables which have a form of `$(expr)` by invoking expression resolver for each.
+    If no resolver passed then assumes expr to represent an OS var.
+    Variable expansions can NOT nest, for example this is invalid: `$(abc$(a))`
+    """
+
+    # If the string doesn't even have '$', we can skip regex entirely
+    if "$" not in val:
+        return val
+
+    def replace_match(match: re.Match) -> str:
+        var_name = match.group(1)
+
+        # Priority 1: Custom Resolver
+        if resolver:
+            handled, resolved_value = resolver(var_name)
+            if handled:
+                return str(resolved_value)
+
+        # Priority 2: OS Environment
+        # Using match.group(0) as default keeps the $(VAR) intact if not found
+        return os.environ.get(var_name, match.group(0))
+
+    return VAR_EXPANSION_PATTERN.sub(replace_match, val)
+
+
+def process_includes(root_path: Path, content: str, expand_vars: bool = False, resolver: Callable[[str], Tuple[bool, str]] | None = None) -> str:
+    """
+    Replaces lines starting with '#include<X>' with the content of file X.
+    If X starts with "!" then the file is required and the system throws exception if such file
+    is not found, otherwise the include is replaced with an empty string
+
+    Args:
+        root_path: A Path as of which to search for files
+        content: Input string to process.
+        expand_vars: pass True to expand environment vars in the include
+        resolver: optional env var resolver functor
+
+    Returns:
+        Modified string with includes expanded.
+
+    Raises:
+        FileNotFoundError: If an include file is missing and was referenced with "!" in the
+        beginning, otherwise an empty string will be returned
+    """
+    def replace_match(match: re.Match) -> str:
+        filename = match.group(1)
+
+        if expand_vars:
+            filename = expand_var_expressions(filename, resolver)
+
+        filename = filename.strip() # safeguard
+        required = len(filename) > 1 and filename.startswith("!")
+        if required:
+            filename = filename[1:]
+
+        file_path = root_path.joinpath(filename)
+        if not file_path.is_file():
+            if required:
+                raise FileNotFoundError(f"Required include file is not found: `{file_path}`")
+            else:
+                return "" # empty string if referenced file is not found
+        return file_path.read_text()  # Preserves newlines and encoding
+
+    return INCLUDE_REX_PATTERN.sub(replace_match, content)
+
 
 
 class AppChassis:
@@ -29,8 +105,8 @@ class AppChassis:
         approach to application architecture
     """
 
-    __s_default: "AppChassis" = None
-    __s_current: "AppChassis" = None
+    __s_default: Optional["AppChassis"] = None
+    __s_current: Optional["AppChassis"] = None
     __s_global_dependency_callbacks: List[Callable] = []
 
     @staticmethod
@@ -42,7 +118,7 @@ class AppChassis:
     @staticmethod
     def get_default_instance() -> "AppChassis":
       """Returns the ever-present default Application class instance"""
-      return AppChassis.__s_default
+      return AppChassis.__s_default # pyright: ignore[reportReturnType]
 
     @staticmethod
     def get_current_instance() -> "AppChassis":
@@ -51,7 +127,7 @@ class AppChassis:
       If not explicit allocation was ever made then the default instance is returned
       """
       current = AppChassis.__s_current
-      return current if current else AppChassis.__s_default
+      return current if current else AppChassis.__s_default # pyright: ignore[reportReturnType]
 
     def __init__(self,
                  app_id: str,
@@ -92,22 +168,39 @@ class AppChassis:
        return environment_name.lower()
 
     def _load_config(self, config: ConfigParser | None) -> ConfigParser:
-       """
-       Loads config INI file co-located with the entry point.
-       The file takes format: `main-ENV.ini` where `ENV` is the name of your environment,
-       for example:  `./main-dev.ini`, `./main-prod.ini` etc.
-       """
-       if config:
-          return config # pass-through
+        """
+        Loads config INI file co-located with the entry point.
+        The file takes format: `main-ENV.ini` where `ENV` is the name of your environment,
+        for example:  `./main-dev.ini`, `./main-prod.ini` etc.
+        If environment specific file is not found, then system tries to load from
+        non-environment file such as `./main.ini`
+        """
+        if config:
+            return config # pass-through
 
-       config = ConfigParser()
+        config = ConfigParser() # config always exists, even an empty one
 
-       path = Path(self._entry_point_path)
-       full = path.parent.joinpath(f"{path.stem}-{self._environment}.ini")
-       if os.path.isfile(full):
-          config.read(full)
+        path = Path(self._entry_point_path)
+        # Try Environment-specific file first
+        full = path.parent.joinpath(f"{path.stem}-{self._environment}.ini")
+        fn = None
+        if os.path.isfile(full):
+            fn = full
+        else:
+            # No environment name at all
+            full = path.parent.joinpath(f"{path.stem}.ini")
+            if os.path.isfile(full):
+                fn = full
 
-       return config
+        if fn:
+            # config.read(fn)
+            source = fn.read_text()
+            # Pre process source
+            source = process_includes(path.parent, source, expand_vars=True) #  #include<!../cfg/log-$(ENV_NAME).ini>
+            # ------------------
+            config.read_string(source, f"Interpolated config `{str(fn)}`")
+
+        return config
 
     @property
     def isdefault(self) -> bool:

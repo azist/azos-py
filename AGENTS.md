@@ -1,6 +1,6 @@
 # Azos-py AI Coding Agent Instructions
 
-> This file contains general instructions for all agents: **Gemini, Claude Code, and Copilot**
+> This file contains general instructions for all agents: **Gemini, Opencode, Claude Code, and Copilot**
 
 > [!warning]
 > You may NEVER EVER make any file system changes in any paths HIGHER than this project root,
