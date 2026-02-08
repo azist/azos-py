@@ -118,7 +118,7 @@ class AppChassis:
     @staticmethod
     def get_default_instance() -> "AppChassis":
       """Returns the ever-present default Application class instance"""
-      return AppChassis.__s_default
+      return AppChassis.__s_default # pyright: ignore[reportReturnType]
 
     @staticmethod
     def get_current_instance() -> "AppChassis":
@@ -127,7 +127,7 @@ class AppChassis:
       If not explicit allocation was ever made then the default instance is returned
       """
       current = AppChassis.__s_current
-      return current if current else AppChassis.__s_default
+      return current if current else AppChassis.__s_default # pyright: ignore[reportReturnType]
 
     def __init__(self,
                  app_id: str,
