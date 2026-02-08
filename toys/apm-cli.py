@@ -1,7 +1,7 @@
-# This is a manual test app which tests APM from CLI interace
+# This is a manual test app which tests APM from CLI interface
 import traceback
 
-# Bootsrap the application chassis
+# Bootstrap the application chassis
 from azos import chassis
 chassis.AppChassis("toy-apm-cli", __file__)
 
@@ -34,7 +34,7 @@ for x in range(3):
 
 
 try:
-    1 / 0
+    x = 1 / 0
 except Exception as error:
     log.error("Exception With exc_info", exc_info=True)
 
@@ -57,4 +57,4 @@ with tracer.start_as_current_span("outer-operation") as outer_span:
 
     log.info("Exited inner span, back in outer span", extra={"otel_span": "outer-operation"})
 
-log.info("Appfinished")
+log.info("App finished")
