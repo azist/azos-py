@@ -75,7 +75,7 @@ def process_includes(root_path: Path, content: str, expand_vars: bool = False, r
         filename = match.group(1)
 
         if expand_vars:
-          filename = expand_var_expressions(filename, resolver)
+            filename = expand_var_expressions(filename, resolver)
 
         filename = filename.strip() # safeguard
         required = len(filename) > 1 and filename.startswith("!")
@@ -198,7 +198,7 @@ class AppChassis:
             # Pre process source
             source = process_includes(path.parent, source, expand_vars=True) #  #include<!../cfg/log-$(ENV_NAME).ini>
             # ------------------
-            config.read_string(source)
+            config.read_string(source, f"Interpolated config `{str(fn)}`")
 
         return config
 
