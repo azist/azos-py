@@ -10,7 +10,7 @@ import uuid
 import platform
 from pathlib import Path
 from configparser import ConfigParser
-from typing import List, Optional, Callable, Tuple
+from typing import Any, Type, Dict, List, Optional, Callable, Tuple, TypeVar
 
 ENV_ENVIRONMENT_NAME_VAR = "SKY_ENVIRONMENT"
 """Name of the environment variable which holds Azos/SKY environment name, such as DEV/TEST/PROD"""
@@ -27,7 +27,7 @@ INCLUDE_REX_PATTERN = re.compile(r'^#include<([^\s>]+)>$', re.MULTILINE)
 PFX_CHASSIS = "chassis::"
 """
 Prefix for application chassis variables, such as `chassis::app`, `chassis::env` etc. This is used in various
-configurationsfor example in log formatters to include chassis variables into logs
+configurations for example in log formatters to include chassis variables into logs
 """
 
 PFX_CHASSIS_LEN = len(PFX_CHASSIS)
@@ -185,6 +185,95 @@ def process_includes(root_path: Path,
     return INCLUDE_REX_PATTERN.sub(replace_match, content)
 
 
+class DIContainer:
+    """
+    Implements service location/dependency injection pattern by providing a double registry of Dict<Type, Dict<str, instance>>
+    dependency instances
+    """
+
+    T = TypeVar("T")
+
+    def __init__(self) -> None:
+        self._deps: Dict[Type, Dict[str, Any]] = {}
+
+    def purge(self, tDep: Type | None = None):
+        """Drops all dependencies and starts anew, if you supply a type then drops only dependencies of that type"""
+        if not tDep:
+          self._deps = { }  # Clear all
+        else:
+          self._deps.pop(tDep, None)
+
+    def register(self, tDep: Type, instance: Any, name: str | None = None) -> bool:
+        """
+        Registers a dependency instance of type and optional name.
+        The instance MUST be of tDep class assignment-compatible.
+
+        :param self: Self ref
+        :param tDep: Dependency type such as abstract base type of service (and interface)
+        :type tDep: Type of service to register
+        :param instance: An instance of the said type
+        :type instance: type or subtype of tDep
+        :param name: Optional name, to resolve instance by name, if not used then `*` is assumed
+        :return: True if was added, false if already existed and was replaced
+        """
+        if not tDep:
+            raise TypeError("Missing dependency type")
+        if not instance:
+            raise ValueError("Missing dependency instance")
+        if not isinstance(instance, tDep):
+            raise TypeError(f"Mismatch in dep registration of type `{tDep}`, but instance is not of that type")
+
+        if not name:
+            name = "*"
+
+        named = self._deps.get(tDep, None) # Get type bucket
+        if not named:
+            named = { }
+            self._deps[tDep] = named
+
+        was = name in named
+        named[name] = instance
+        return not was
+
+
+    def try_get(self, tDep: Type[T], name: str | None = None) -> T | None:
+        """
+        Tries to resolve a dependency of the specifies type and optional name.
+        If resolution fails, returns None, unlike the `get` method which throws
+
+        :param self: Self ref
+        :param tDep: Dependency type such as abstract base type of service (and interface)
+        :type tDep: Type[T] of service to get
+        :param name: Optional name, in NOne then `*` is used for any
+        :return: Dependency instance of the requested type or None
+        """
+        if not tDep:
+            return None
+        named = self._deps.get(tDep, None)
+        if not named:
+            return None;
+
+        if not name:
+            name = "*"
+
+        return named.get(name, None)
+
+    def get(self, tDep: Type[T], name: str | None = None) -> T:
+        """
+        Resolve a dependency of the specifies type and optional name.
+        If resolution fails, then throws, unlike the `try_get` method which return None
+
+        :param self: Self ref
+        :param tDep: Dependency type such as abstract base type of service (and interface)
+        :type tDep: Type[T] of service to get
+        :param name: Optional name, in NOne then `*` is used for any
+        :return: Dependency instance of the requested type or None
+        """
+        result = self.try_get(tDep, name)
+        if not result:
+            raise ValueError(f"Could not resolve requirement {tDep}('{name}')")
+        return result
+
 
 class AppChassis:
     """
@@ -233,6 +322,7 @@ class AppChassis:
        self._environment = self._get_environment(environment_name)
        self._config = self._load_config(config) # use the supplied one or load co-located file
        self._host = platform.node()
+       self._deps = DIContainer()
 
        if not AppChassis.__s_default:
           AppChassis.__s_default = self
@@ -337,6 +427,13 @@ class AppChassis:
     def app(self) -> str:
         """Short application id. Atom recommended"""
         return self._app
+
+    @property
+    def deps(self) -> DIContainer:
+        """Returns `DIContainer` which you use to resolve application dependencies"""
+        return self._deps
+
+
 
 
 # Allocate default instance
