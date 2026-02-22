@@ -275,6 +275,33 @@ class DIContainer:
         return result
 
 
+class Injector:
+    """
+    Facilitates Dependency resolution and injection from `DIContainer` instance mounted on the
+    current application chassis.
+
+    Examples:
+       For example, in a FastAPI application you can succinctly declare injectable dependencies
+       using `typing.Annotated` and `fastapi.Depends`:
+
+       ```python
+
+        WeatherDep = Annotated[IWeatherService, Depends(Injector(IWeatherService, "national"))]
+
+        @app.get("/weather/")
+        async def get_weather(weather: WeatherDep):
+            return weather.get_hourly('Elm Shores, TX')
+       ```
+    """
+    def __init__(self, target_type: Type[Any], target_name: str| None = None):
+       self.target_type = target_type
+       self.target_name = target_name
+
+    def __call__(self) -> Any:
+        chassis = AppChassis.get_current_instance()
+        return chassis.deps.get(self.target_type, self.target_name)
+
+
 class AppChassis:
     """
     Application chassis pattern provides global boilerplate for app instance identification,
@@ -430,7 +457,18 @@ class AppChassis:
 
     @property
     def deps(self) -> DIContainer:
-        """Returns `DIContainer` which you use to resolve application dependencies"""
+        """
+        Returns `DIContainer` which you use to register at entry point and then resolve application dependencies
+        at runtime.
+
+        This is the cornerstone of dependency injection solution, acting as a chassis-central service locator,
+        you outline application logic as service contracts and then provide various implementations for them.
+        At the application entry, we register dependencies by associating an optionally-named instance of the
+        said service of interest with the resolver (this property).
+
+        At runtime various other components can now
+        polymorphically resolve or inject dependencies into themselves
+        """
         return self._deps
 
 
