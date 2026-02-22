@@ -35,7 +35,7 @@ def test_register_default_name_and_try_get_get_success():
     assert container.get(IService) is instance
 
 
-def test_register_named_and_resolve_by_name():
+def test_register_named_and_resolve_by_name_with_no_default():
     container = DIContainer()
     one = ServiceA()
     two = ServiceB()
@@ -46,6 +46,21 @@ def test_register_named_and_resolve_by_name():
     assert container.try_get(IService, "one") is one
     assert container.try_get(IService, "two") is two
     assert container.try_get(IService) is None
+
+def test_register_named_and_resolve_by_name_with_default():
+    container = DIContainer()
+    dflt = ServiceA()
+    one = ServiceA()
+    two = ServiceB()
+
+    container.register(IService, dflt)
+    container.register(IService, one, "one")
+    container.register(IService, two, "two")
+
+    assert container.try_get(IService) is dflt
+    assert container.try_get(IService, "one") is one
+    assert container.try_get(IService, "two") is two
+
 
 
 def test_register_replacement_returns_false_and_overwrites():
