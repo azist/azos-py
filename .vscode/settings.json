@@ -20,5 +20,8 @@
     "editor.mouseWheelZoom": true,
     "files.trimTrailingWhitespace": true,
     "editor.renderWhitespace": "all",
-    "editor.rulers": [120]
+    "editor.rulers": [
+        120
+    ],
+    "python-envs.pythonProjects": []
 }

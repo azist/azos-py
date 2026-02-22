@@ -10,12 +10,12 @@ import uuid
 import platform
 from pathlib import Path
 from configparser import ConfigParser
-from typing import List, Optional, Callable, Tuple
+from typing import Any, Type, Dict, List, Optional, Callable, Tuple, TypeVar
 
 ENV_ENVIRONMENT_NAME_VAR = "SKY_ENVIRONMENT"
 """Name of the environment variable which holds Azos/SKY environment name, such as DEV/TEST/PROD"""
 
-DEFAULT_APP_ID = "azapp"
+DEFAULT_APP_ID = "azos"
 """Default application id which is used when no chassis is allocated"""
 
 VAR_EXPANSION_PATTERN = re.compile(r'\$\(([^)]+)\)')
@@ -24,19 +24,93 @@ VAR_EXPANSION_PATTERN = re.compile(r'\$\(([^)]+)\)')
 INCLUDE_REX_PATTERN = re.compile(r'^#include<([^\s>]+)>$', re.MULTILINE)
 """Matches #include<X> file include pragma used with `process_includes()`"""
 
+PFX_CHASSIS = "chassis::"
+"""
+Prefix for application chassis variables, such as `chassis::app`, `chassis::env` etc. This is used in various
+configurations for example in log formatters to include chassis variables into logs
+"""
 
-def expand_var_expressions(val: str, resolver: Callable[[str], Tuple[bool, str]] | None = None) -> str:
+PFX_CHASSIS_LEN = len(PFX_CHASSIS)
+"""Length of the chassis variable prefix, used for optimization when parsing variable names"""
+
+INCLUDE_MAX_DEPTH = 10
+"""Maximum depth of nested includes to prevent infinite recursion. This is a safeguard"""
+
+
+
+def expand_var_expressions(val: str | None,
+                           resolver: Callable[[str], Tuple[bool, str]] | None = None,
+                           chassis: Optional["AppChassis"] = None) -> str | None:
     """
     Expands variables which have a form of `$(expr)` by invoking expression resolver for each.
-    If no resolver passed then assumes expr to represent an OS var.
+    If no resolver passed then uses default env var resolver.
     Variable expansions can NOT nest, for example this is invalid: `$(abc$(a))`
+    Works in multiple passes until no more variables are found or maximum depth is reached.
+    This allows for nested variable expansions such as `$(var1)` where var1's value is `$(var2)` and so on.
+
+    args:
+        val: input string to expand
+        resolver: optional custom resolver function which takes variable name and returns a tuple of
+          (handled: bool, value: str). If handled is True then value is used as the resolved value, otherwise
+          default env var resolver is used.
+        chassis: optional AppChassis instance to resolve chassis variables such as `$(chassis::app)`, `$(chassis::env)` etc.
+
+    returns:
+        Expanded string with all variables resolved. If a variable cannot be resolved, it remains unchanged
+        in the output.
+    """
+
+    if not val: return None
+
+    i = 0
+    while True:
+        if i == INCLUDE_MAX_DEPTH:
+            raise ValueError(f"Maximum variable expansion depth of {INCLUDE_MAX_DEPTH} exceeded. Possible circular reference in `{val}`")
+
+        matched, val = expand_var_expressions_once(val, resolver, chassis)
+
+        if not matched:
+            break
+
+        i += 1
+
+    return val
+
+
+
+def expand_var_expressions_once(val: str | None,
+                                resolver: Callable[[str], Tuple[bool, str]] | None = None,
+                                chassis: Optional["AppChassis"] = None) -> Tuple[bool, str | None]:
+    """
+    Expands variables which have a form of `$(expr)` by invoking expression resolver for each.
+    If no resolver passed then uses default env var resolver.
+    Variable expansions can NOT nest, for example this is invalid: `$(abc$(a))`
+    Works in a  single pass, meaning that if the resolved value contains more variables,
+    they will not be expanded in this call.
+
+    args:
+        val: input string to expand
+        resolver: optional custom resolver function which takes variable name and returns a tuple of
+          (handled: bool, value: str). If handled is True then value is used as the resolved value, otherwise
+          default env var resolver is used.
+        chassis: optional AppChassis instance to resolve chassis variables such as `$(chassis::app)`, `$(chassis::env)` etc.
+
+    returns:
+        Expanded string with all variables resolved in this pass. If a variable cannot be resolved, it remains unchanged
+        in the output. Single pass meaning that if the resolved value contains more variables, they will not be
+         expanded in this call. See `expand_var_expressions()` for multi-pass expansion.
     """
 
     # If the string doesn't even have '$', we can skip regex entirely
-    if "$" not in val:
-        return val
+    if not val or  "$" not in val:
+        return False, val
+
+    had_match = False
 
     def replace_match(match: re.Match) -> str:
+        nonlocal had_match
+        had_match = True
+
         var_name = match.group(1)
 
         # Priority 1: Custom Resolver
@@ -45,14 +119,32 @@ def expand_var_expressions(val: str, resolver: Callable[[str], Tuple[bool, str]]
             if handled:
                 return str(resolved_value)
 
-        # Priority 2: OS Environment
+        #Priority 2: Chassis Variables
+        if var_name.startswith(PFX_CHASSIS) and len(var_name) > PFX_CHASSIS_LEN:
+            ac = chassis if  chassis else AppChassis.get_current_instance()
+            nm = var_name[PFX_CHASSIS_LEN:]
+            return getattr(ac, nm, nm)
+
+        #Priority 3: App config $(@sect->key) syntax
+        if var_name.startswith("@") and len(var_name) > 4:
+            ac = chassis if  chassis else AppChassis.get_current_instance()
+            sect,_, atr = var_name[1:].partition("->")
+            if len(sect) > 0 and len(atr) > 0:
+                return ac.config.get(sect, atr, fallback="")
+
+        # Priority 43: OS Environment
         # Using match.group(0) as default keeps the $(VAR) intact if not found
         return os.environ.get(var_name, match.group(0))
 
-    return VAR_EXPANSION_PATTERN.sub(replace_match, val)
+    result =  VAR_EXPANSION_PATTERN.sub(replace_match, val)
+    return had_match, result
 
 
-def process_includes(root_path: Path, content: str, expand_vars: bool = False, resolver: Callable[[str], Tuple[bool, str]] | None = None) -> str:
+def process_includes(root_path: Path,
+                     content: str,
+                     expand_vars: bool = False,
+                     resolver: Callable[[str], Tuple[bool, str]] | None = None,
+                     chassis: Optional["AppChassis"] = None) -> str:
     """
     Replaces lines starting with '#include<X>' with the content of file X.
     If X starts with "!" then the file is required and the system throws exception if such file
@@ -75,7 +167,7 @@ def process_includes(root_path: Path, content: str, expand_vars: bool = False, r
         filename = match.group(1)
 
         if expand_vars:
-            filename = expand_var_expressions(filename, resolver)
+            filename = expand_var_expressions(filename, resolver, chassis)
 
         filename = filename.strip() # safeguard
         required = len(filename) > 1 and filename.startswith("!")
@@ -92,6 +184,95 @@ def process_includes(root_path: Path, content: str, expand_vars: bool = False, r
 
     return INCLUDE_REX_PATTERN.sub(replace_match, content)
 
+
+class DIContainer:
+    """
+    Implements service location/dependency injection pattern by providing a double registry of Dict<Type, Dict<str, instance>>
+    dependency instances
+    """
+
+    T = TypeVar("T")
+
+    def __init__(self) -> None:
+        self._deps: Dict[Type, Dict[str, Any]] = {}
+
+    def purge(self, tDep: Type | None = None):
+        """Drops all dependencies and starts anew, if you supply a type then drops only dependencies of that type"""
+        if not tDep:
+          self._deps = { }  # Clear all
+        else:
+          self._deps.pop(tDep, None)
+
+    def register(self, tDep: Type, instance: Any, name: str | None = None) -> bool:
+        """
+        Registers a dependency instance of type and optional name.
+        The instance MUST be of tDep class assignment-compatible.
+
+        :param self: Self ref
+        :param tDep: Dependency type such as abstract base type of service (and interface)
+        :type tDep: Type of service to register
+        :param instance: An instance of the said type
+        :type instance: type or subtype of tDep
+        :param name: Optional name, to resolve instance by name, if not used then `*` is assumed
+        :return: True if was added, false if already existed and was replaced
+        """
+        if not tDep:
+            raise TypeError("Missing dependency type")
+        if not instance:
+            raise ValueError("Missing dependency instance")
+        if not isinstance(instance, tDep):
+            raise TypeError(f"Mismatch in dep registration of type `{tDep}`, but instance is not of that type")
+
+        if not name:
+            name = "*"
+
+        named = self._deps.get(tDep, None) # Get type bucket
+        if not named:
+            named = { }
+            self._deps[tDep] = named
+
+        was = name in named
+        named[name] = instance
+        return not was
+
+
+    def try_get(self, tDep: Type[T], name: str | None = None) -> T | None:
+        """
+        Tries to resolve a dependency of the specifies type and optional name.
+        If resolution fails, returns None, unlike the `get` method which throws
+
+        :param self: Self ref
+        :param tDep: Dependency type such as abstract base type of service (and interface)
+        :type tDep: Type[T] of service to get
+        :param name: Optional name, in NOne then `*` is used for any
+        :return: Dependency instance of the requested type or None
+        """
+        if not tDep:
+            return None
+        named = self._deps.get(tDep, None)
+        if not named:
+            return None;
+
+        if not name:
+            name = "*"
+
+        return named.get(name, None)
+
+    def get(self, tDep: Type[T], name: str | None = None) -> T:
+        """
+        Resolve a dependency of the specifies type and optional name.
+        If resolution fails, then throws, unlike the `try_get` method which return None
+
+        :param self: Self ref
+        :param tDep: Dependency type such as abstract base type of service (and interface)
+        :type tDep: Type[T] of service to get
+        :param name: Optional name, in NOne then `*` is used for any
+        :return: Dependency instance of the requested type or None
+        """
+        result = self.try_get(tDep, name)
+        if not result:
+            raise ValueError(f"Could not resolve requirement {tDep}('{name}')")
+        return result
 
 
 class AppChassis:
@@ -141,6 +322,7 @@ class AppChassis:
        self._environment = self._get_environment(environment_name)
        self._config = self._load_config(config) # use the supplied one or load co-located file
        self._host = platform.node()
+       self._deps = DIContainer()
 
        if not AppChassis.__s_default:
           AppChassis.__s_default = self
@@ -196,7 +378,11 @@ class AppChassis:
             # config.read(fn)
             source = fn.read_text()
             # Pre process source
-            source = process_includes(path.parent, source, expand_vars=True) #  #include<!../cfg/log-$(ENV_NAME).ini>
+            for x in range(INCLUDE_MAX_DEPTH):
+                source = process_includes(path.parent,
+                                          source,
+                                          expand_vars=True,
+                                          chassis=self) #  #include<!../cfg/log-$(ENV_NAME).ini>
             # ------------------
             config.read_string(source, f"Interpolated config `{str(fn)}`")
 
@@ -241,6 +427,13 @@ class AppChassis:
     def app(self) -> str:
         """Short application id. Atom recommended"""
         return self._app
+
+    @property
+    def deps(self) -> DIContainer:
+        """Returns `DIContainer` which you use to resolve application dependencies"""
+        return self._deps
+
+
 
 
 # Allocate default instance
