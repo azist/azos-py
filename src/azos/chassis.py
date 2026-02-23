@@ -325,14 +325,19 @@ class AppChassis:
 
     @staticmethod
     def get_default_instance() -> "AppChassis":
-      """Returns the ever-present default Application class instance"""
+      """
+      Returns the ever-present default Application class instance.
+      This is a framework internal method which should not be utilized in business apps
+      """
       return AppChassis.__s_default # pyright: ignore[reportReturnType]
 
     @staticmethod
     def get_current_instance() -> "AppChassis":
       """
       Returns the current Application singleton which was allocated the last.
-      If not explicit allocation was ever made then the default instance is returned
+      If not explicit allocation was ever made then the default instance is returned.
+      This is a framework internal method which should not be utilized much is ever in business apps
+      which should use DI instead
       """
       current = AppChassis.__s_current
       return current if current else AppChassis.__s_default # pyright: ignore[reportReturnType]
