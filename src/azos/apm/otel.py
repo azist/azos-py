@@ -58,7 +58,7 @@ class LogSpanExporter(SpanExporter):
     An OTEL Span Exporter that writes spans to Azos LogStrand
     """
 
-    def __init__(self, log_strand: log.LogStrand):
+    def __init__(self):
         self._log = log.LogStrand("otel.log", channel = log.LOG_CHANNEL_OTEL)
 
     def export(self, spans) -> SpanExportResult:
@@ -103,7 +103,7 @@ def __activate_otel() -> None:
     chassis = AppChassis.get_current_instance()
     conf = chassis.config
 
-    if chassis.isdefault:
+    if chassis.is_default:
         return # must use real non-default instance to be able to bootstrap OTEL
 
     global __otel_configured
