@@ -278,27 +278,29 @@ class DIContainer:
 
 class Injector:
     """
-    Helper method for dependency resolution from `DIContainer` of the current app chasssis.
+    Facilitates Dependency resolution and injection from `DIContainer` instance mounted on the
+    current application chassis.
 
-    Example:
-        FastAPI application you can utilize `Depends()` with `Injector`
+    Examples:
+       For example, in a FastAPI application you can succinctly declare injectable dependencies
+       using `typing.Annotated` and `fastapi.Depends`:
 
-        ```python
-        WeatherDep = Annotated[IWeather, Depends(Injector(IWeather, "national"))]
+       ```python
 
-        @app.get("/weather")
+        WeatherDep = Annotated[IWeatherService, Depends(Injector(IWeatherService, "national"))]
+
+        @app.get("/weather/")
         async def get_weather(weather: WeatherDep):
-            return weather.get_hourly('Stow, OH')
-        ```
+            return weather.get_hourly('Elm Shores, TX')
+       ```
     """
     def __init__(self, target_type: Type[Any], target_name: str| None = None):
-        self.target_name = target_name
-        self.target_type = target_type
+       self.target_type = target_type
+       self.target_name = target_name
 
-    def __call__(self):
+    def __call__(self) -> Any:
         chassis = AppChassis.get_current_instance()
         return chassis.deps.get(self.target_type, self.target_name)
-
 
 
 class AppChassis:
@@ -324,14 +326,19 @@ class AppChassis:
 
     @staticmethod
     def get_default_instance() -> "AppChassis":
-      """Returns the ever-present default Application class instance"""
+      """
+      Returns the ever-present default Application class instance.
+      This is a framework internal method which should not be utilized in business apps
+      """
       return AppChassis.__s_default # pyright: ignore[reportReturnType]
 
     @staticmethod
     def get_current_instance() -> "AppChassis":
       """
       Returns the current Application singleton which was allocated the last.
-      If not explicit allocation was ever made then the default instance is returned
+      If not explicit allocation was ever made then the default instance is returned.
+      This is a framework internal method which should not be utilized much is ever in business apps
+      which should use DI instead
       """
       current = AppChassis.__s_current
       return current if current else AppChassis.__s_default # pyright: ignore[reportReturnType]
@@ -457,7 +464,18 @@ class AppChassis:
 
     @property
     def deps(self) -> DIContainer:
-        """Returns `DIContainer` which you use to resolve application dependencies"""
+        """
+        Returns `DIContainer` which you use to register at entry point and then resolve application dependencies
+        at runtime.
+
+        This is the cornerstone of dependency injection solution, acting as a chassis-central service locator,
+        you outline application logic as service contracts and then provide various implementations for them.
+        At the application entry, we register dependencies by associating an optionally-named instance of the
+        said service of interest with the resolver (this property).
+
+        At runtime various other components can now
+        polymorphically resolve or inject dependencies into themselves
+        """
         return self._deps
 
 
