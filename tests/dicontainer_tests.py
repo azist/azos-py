@@ -134,7 +134,7 @@ def test_get_missing_dependency_raises_value_error():
     with pytest.raises(ValueError) as exc_info:
         container.get(IService)
 
-    assert "Could not resolve requirement" in str(exc_info.value)
+    assert "Could not resolve dependency requirement" in str(exc_info.value)
 
 
 def test_get_missing_named_dependency_raises_value_error():
@@ -144,7 +144,7 @@ def test_get_missing_named_dependency_raises_value_error():
     with pytest.raises(ValueError) as exc_info:
         container.get(IService, "b")
 
-    assert "Could not resolve requirement" in str(exc_info.value)
+    assert "Could not resolve dependency requirement" in str(exc_info.value)
 
 
 def test_purge_all_clears_everything():
