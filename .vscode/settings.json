@@ -12,10 +12,12 @@
         "setuptools"
     ],
     "files.eol": "\n",
-    "workbench.tree.indent": 25,
+    "workbench.tree.indent": 28,
     "workbench.tree.renderIndentGuides": "always",
     "workbench.colorCustomizations": {
-         "editorRuler.foreground": "#20a0ff40"
+         "editorRuler.foreground": "#20a0ff40",
+         "gitDecoration.ignoredResourceForeground": "#e0701060",
+         "tree.indentGuidesStroke": "#407aff70"
     },
     "editor.mouseWheelZoom": true,
     "files.trimTrailingWhitespace": true,
@@ -23,5 +25,7 @@
     "editor.rulers": [
         120
     ],
-    "python-envs.pythonProjects": []
+    "python-envs.pythonProjects": [],
+    "editor.fontFamily": "'Droid Sans Mono', monospace",
+    "python.analysis.typeCheckingMode": "standard"
 }
