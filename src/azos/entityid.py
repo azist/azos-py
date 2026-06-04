@@ -18,7 +18,7 @@ def tryparse(val: str) -> tuple | None:
 
     """
     try:
-        if val == None:
+        if val is None:
             return None
 
         vlen = len(val)
@@ -84,7 +84,7 @@ def parse(val: str) -> tuple:
 
     """
     result = tryparse(val)
-    if result == None:
+    if result is None:
         raise AzosError("Supplied value is not parsable as EntityId", "entityid", f"parse(`{val}`)")
     return result
 
