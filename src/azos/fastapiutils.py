@@ -41,7 +41,7 @@ def fastapi_builder(chassis: AppChassis, routers: List[APIRouter] | None = None,
     Returns a tuple of (LogStrand, FastAPI) for use in app setup.
     """
 
-    log = LogStrand(chassis, "app.setup", rel="self")
+    log = LogStrand("app.setup", rel="self")
     log.info("Starting FastAPI app setup:")
 
     fa_deps = [] # dependencies
