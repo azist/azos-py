@@ -17,7 +17,7 @@ from azos.stock_content import loader
 ENV_ENVIRONMENT_NAME_VAR = "SKY_ENVIRONMENT"
 """Name of the environment variable which holds Azos/SKY environment name, such as DEV/TEST/PROD"""
 
-DEFAULT_ENVV_NAME = "local"
+DEFAULT_ENV_NAME = "local"
 """Default environment name if not specified in env var or chassis allocation"""
 
 DEFAULT_APP_ID = "azos"
@@ -401,7 +401,7 @@ class AppChassis:
        # Must be after _env
        self._config = self._load_config(config) # use the supplied one or load co-located file
 
-       if not AppChassis.__s_default:
+       if AppChassis.__s_default is None:
           AppChassis.__s_default = self
           self._is_default = True
        else:
@@ -423,8 +423,10 @@ class AppChassis:
        if environment_name is not None and environment_name != "" and not environment_name.isspace():
           return environment_name.lower()
 
-       environment_name = os.getenv(ENV_ENVIRONMENT_NAME_VAR, 'local')
-       return environment_name.lower()
+       environment_name = os.getenv(ENV_ENVIRONMENT_NAME_VAR,
+                                    os.getenv(ENV_ENVIRONMENT_NAME_VAR.lower(), DEFAULT_ENV_NAME))
+
+       return environment_name.lower() if environment_name else DEFAULT_ENV_NAME
 
     def _load_config(self, config: ConfigParser | None) -> ConfigParser:
         """
