@@ -224,13 +224,13 @@ def process_includes(root_path: Path,
     return INCLUDE_REX_PATTERN.sub(replace_match, content)
 
 
+T = TypeVar("T")
+
 class DIContainer:
     """
     Implements service location/dependency injection pattern by providing a double registry of Dict<Type, Dict<str, instance>>
     dependency instances
     """
-
-    T = TypeVar("T")
 
     def __init__(self) -> None:
         self._deps: Dict[Type, Dict[str, Any]] = {}
@@ -247,7 +247,7 @@ class DIContainer:
         Registers a dependency instance of type and optional name.
         The instance MUST be of tDep class assignment-compatible.
 
-        :param self: Self ref
+        :param self: Self reference
         :param t_dep: Dependency type such as abstract base type of service (and interface)
         :type t_dep: Type of service to register
         :param instance: An instance of the said type
@@ -310,7 +310,8 @@ class DIContainer:
         """
         result = self.try_get(t_dep, name)
         if not result:
-            raise ValueError(f"Could not resolve dependency requirement {t_dep}('{name}')")
+            raise ValueError(f"Could not resolve dependency requirement {t_dep}('{name}')"
+                             f"Revise chassis dependency registration like `chassis.deps.register({t_dep}, instance, '{name}')`")
         return result
 
 
@@ -330,6 +331,10 @@ class Injector:
         @app.get("/weather/")
         async def get_weather(weather: WeatherDep):
             return weather.get_hourly('Elm Shores, TX')
+
+        @app.get("/weather2/")  # or use `inject(T)` FastAPI helper
+        async def get_weather2(weather: inject(IWeather)):
+            return weather.get_hourly('Another Town, OH')
        ```
     """
     def __init__(self, target_type: Type[Any], target_name: str| None = None):
