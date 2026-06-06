@@ -436,7 +436,7 @@ class AppChassis:
         If environment specific file is not found, then system tries to load from
         non-environment file such as `./main.ini`
         """
-        if config:
+        if config is not None:
             return config # pass-through
 
         config = ConfigParser() # config always exists, even an empty one
