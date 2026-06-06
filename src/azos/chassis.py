@@ -11,6 +11,8 @@ import platform
 from pathlib import Path
 from configparser import ConfigParser
 from typing import Any, Type, Dict, List, Optional, Callable, Tuple, TypeVar
+from azos.stock_content import loader
+
 
 ENV_ENVIRONMENT_NAME_VAR = "SKY_ENVIRONMENT"
 """Name of the environment variable which holds Azos/SKY environment name, such as DEV/TEST/PROD"""
