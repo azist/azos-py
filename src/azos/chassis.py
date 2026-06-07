@@ -11,9 +11,14 @@ import platform
 from pathlib import Path
 from configparser import ConfigParser
 from typing import Any, Type, Dict, List, Optional, Callable, Tuple, TypeVar
+from azos.stock_content import loader
+
 
 ENV_ENVIRONMENT_NAME_VAR = "SKY_ENVIRONMENT"
 """Name of the environment variable which holds Azos/SKY environment name, such as DEV/TEST/PROD"""
+
+DEFAULT_ENV_NAME = "local"
+"""Default environment name if not specified in env var or chassis allocation"""
 
 DEFAULT_APP_ID = "azos"
 """Default application id which is used when no chassis is allocated"""
@@ -36,6 +41,16 @@ PFX_CHASSIS_LEN = len(PFX_CHASSIS)
 INCLUDE_MAX_DEPTH = 10
 """Maximum depth of nested includes to prevent infinite recursion. This is a safeguard"""
 
+PFX_STOCK = "stock::"
+"""Prefix for stock artifact path - paths that start with this prefix are read by stock content loader"""
+
+PFX_STOCK_LEN = len(PFX_STOCK)
+"""Length of the stock variable prefix, used for optimization when parsing var names"""
+
+
+class ConfigError(Exception):
+    """Custom exception type for configuration errors"""
+    pass
 
 
 def expand_var_expressions(val: str | None,
@@ -44,9 +59,9 @@ def expand_var_expressions(val: str | None,
     """
     Expands variables which have a form of `$(expr)` by invoking expression resolver for each.
     If no resolver passed then uses default env var resolver.
-    Variable expansions can NOT nest, for example this is invalid: `$(abc$(a))`
+    Variable expansion definitions can NOT nest, for example this is invalid: `$(abc$(a))`.
     Works in multiple passes until no more variables are found or maximum depth is reached.
-    This allows for nested variable expansions such as `$(var1)` where var1's value is `$(var2)` and so on.
+    This allows for chained variable expansions such as `$(var1)` where var1's value is `$(var2)` and so on.
 
     args:
         val: input string to expand
@@ -60,12 +75,14 @@ def expand_var_expressions(val: str | None,
         in the output.
     """
 
-    if not val: return None
+    if val is None:
+        return None
 
     i = 0
     while True:
         if i == INCLUDE_MAX_DEPTH:
-            raise ValueError(f"Maximum variable expansion depth of {INCLUDE_MAX_DEPTH} exceeded. Possible circular reference in `{val}`")
+            raise ConfigError(f"Expression '{val}' exceeded maximum var expansion depth of {INCLUDE_MAX_DEPTH}. "
+                              f"Look for circular references or missing set env vars.")
 
         matched, val = expand_var_expressions_once(val, resolver, chassis)
 
@@ -84,9 +101,9 @@ def expand_var_expressions_once(val: str | None,
     """
     Expands variables which have a form of `$(expr)` by invoking expression resolver for each.
     If no resolver passed then uses default env var resolver.
-    Variable expansions can NOT nest, for example this is invalid: `$(abc$(a))`
+    Variable expansion definitions can NOT nest, for example this is invalid: `$(abc$(a))`.
     Works in a  single pass, meaning that if the resolved value contains more variables,
-    they will not be expanded in this call.
+    they will NOT be expanded in this call.
 
     args:
         val: input string to expand
@@ -100,9 +117,11 @@ def expand_var_expressions_once(val: str | None,
         in the output. Single pass meaning that if the resolved value contains more variables, they will not be
          expanded in this call. See `expand_var_expressions()` for multi-pass expansion.
     """
+    if val is None:
+        return False, None
 
     # If the string doesn't even have '$', we can skip regex entirely
-    if not val or  "$" not in val:
+    if "$" not in val:
         return False, val
 
     had_match = False
@@ -126,7 +145,7 @@ def expand_var_expressions_once(val: str | None,
             return getattr(ac, nm, nm)
 
         #Priority 3: App config $(@sect->key) syntax
-        if var_name.startswith("@") and len(var_name) > 4:
+        if var_name.startswith("@") and len(var_name) > 4: # @x->y is the minimum length = 5 chars
             ac = chassis if  chassis else AppChassis.get_current_instance()
             sect,_, atr = var_name[1:].partition("->")
             if len(sect) > 0 and len(atr) > 0:
@@ -134,7 +153,7 @@ def expand_var_expressions_once(val: str | None,
 
         # Priority 4: OS Environment
         # Using match.group(0) as default keeps the $(VAR) intact if not found
-        return os.environ.get(var_name, match.group(0))
+        return os.environ.get(var_name, match.group(0)) or ""
 
     result =  VAR_EXPANSION_PATTERN.sub(replace_match, val)
     return had_match, result
@@ -170,10 +189,29 @@ def process_includes(root_path: Path,
         if expand_vars:
             filename = expand_var_expressions(filename, resolver, chassis)
 
+        if filename is None:
+            return "" # empty string if filename is None after expansion
+
         filename = filename.strip() # safeguard
         required = len(filename) > 1 and filename.startswith("!")
         if required:
             filename = filename[1:]
+
+        if filename == "":
+            if required:
+                raise FileNotFoundError(f"Required include file is unknown after var evaluation")
+            else:
+                return "" # empty string if filename is empty after expansion
+
+        if filename.startswith(PFX_STOCK) and len(filename) > PFX_STOCK_LEN:
+            stock_path = filename[PFX_STOCK_LEN:]
+            stock_content = loader.load_text_content(stock_path)
+            if stock_content is None:
+                if required:
+                    raise FileNotFoundError(f"Required stock content file is not found: `{stock_path}`")
+                else:
+                    return "" # empty string if referenced stock content is not found
+            return stock_content
 
         file_path = root_path.joinpath(filename)
         if not file_path.is_file():
@@ -186,13 +224,13 @@ def process_includes(root_path: Path,
     return INCLUDE_REX_PATTERN.sub(replace_match, content)
 
 
+T = TypeVar("T")
+
 class DIContainer:
     """
     Implements service location/dependency injection pattern by providing a double registry of Dict<Type, Dict<str, instance>>
     dependency instances
     """
-
-    T = TypeVar("T")
 
     def __init__(self) -> None:
         self._deps: Dict[Type, Dict[str, Any]] = {}
@@ -209,7 +247,7 @@ class DIContainer:
         Registers a dependency instance of type and optional name.
         The instance MUST be of tDep class assignment-compatible.
 
-        :param self: Self ref
+        :param self: Self reference
         :param t_dep: Dependency type such as abstract base type of service (and interface)
         :type t_dep: Type of service to register
         :param instance: An instance of the said type
@@ -272,7 +310,8 @@ class DIContainer:
         """
         result = self.try_get(t_dep, name)
         if not result:
-            raise ValueError(f"Could not resolve dependency requirement {t_dep}('{name}')")
+            raise ValueError(f"Could not resolve dependency requirement {t_dep}('{name}')"
+                             f"Revise chassis dependency registration like `chassis.deps.register({t_dep}, instance, '{name}')`")
         return result
 
 
@@ -292,6 +331,10 @@ class Injector:
         @app.get("/weather/")
         async def get_weather(weather: WeatherDep):
             return weather.get_hourly('Elm Shores, TX')
+
+        @app.get("/weather2/")  # or use `inject(T)` FastAPI helper
+        async def get_weather2(weather: inject(IWeather)):
+            return weather.get_hourly('Another Town, OH')
        ```
     """
     def __init__(self, target_type: Type[Any], target_name: str| None = None):
@@ -358,7 +401,7 @@ class AppChassis:
        # Must be after _env
        self._config = self._load_config(config) # use the supplied one or load co-located file
 
-       if not AppChassis.__s_default:
+       if AppChassis.__s_default is None:
           AppChassis.__s_default = self
           self._is_default = True
        else:
@@ -380,8 +423,10 @@ class AppChassis:
        if environment_name is not None and environment_name != "" and not environment_name.isspace():
           return environment_name.lower()
 
-       environment_name = os.getenv(ENV_ENVIRONMENT_NAME_VAR, 'local')
-       return environment_name.lower()
+       environment_name = os.getenv(ENV_ENVIRONMENT_NAME_VAR,
+                                    os.getenv(ENV_ENVIRONMENT_NAME_VAR.lower(), DEFAULT_ENV_NAME))
+
+       return environment_name.lower() if environment_name else DEFAULT_ENV_NAME
 
     def _load_config(self, config: ConfigParser | None) -> ConfigParser:
         """
@@ -391,7 +436,7 @@ class AppChassis:
         If environment specific file is not found, then system tries to load from
         non-environment file such as `./main.ini`
         """
-        if config:
+        if config is not None:
             return config # pass-through
 
         config = ConfigParser() # config always exists, even an empty one
