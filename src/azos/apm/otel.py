@@ -2,20 +2,24 @@
 Azos Open Telemetry Module
 Copyright (C) 2026 Azist, MIT License
 """
-from . import log
-from azos.chassis import AppChassis
+import fnmatch
+import azos.apm.log as log
+from azos.chassis import AppChassis, expand_var_expressions as evar
 
 # Import OTEL SDK components via feature detection
 try:
     from opentelemetry import trace
     from opentelemetry.sdk.resources import Resource
-    from opentelemetry.sdk.trace import TracerProvider, Tracer, StatusCode
-    from opentelemetry.instrumentation.requests import RequestsInstrumentor
-    from opentelemetry.sdk.trace.export import (BatchSpanProcessor,
+    from opentelemetry.sdk.trace import TracerProvider, Tracer
+    from opentelemetry.trace.status import StatusCode
+    from opentelemetry.sdk.trace.export import (SpanProcessor,
+                                                BatchSpanProcessor,
                                                 SpanExporter,
                                                 ConsoleSpanExporter,
                                                 SimpleSpanProcessor,
                                                 SpanExportResult)
+    from opentelemetry.instrumentation.requests import RequestsInstrumentor
+    from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
     from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 except ImportError as cause:
     raise ImportError(
@@ -23,16 +27,16 @@ except ImportError as cause:
         "Please install them via pip: "
         " pip install opentelemetry-api \\ "
         "             opentelemetry-sdk \\ "
-        "             opentelemetry-exporter-otlp \ "
+        "             opentelemetry-exporter-otlp \\ "
         "             opentelemetry-instrumentation-requests") from cause
 
 
 CFG_OTEL_SECTION = "otel"
 """
-Open Telemetry configuration section name, e.g. ini`[otel]` or laconic`otel{}`
+Open Telemetry configuration section name, e.g. ini`[otel]` or Laconic`otel{}`
 """
 
-def get_tracer(name: str) -> Tracer:
+def get_tracer(name: str) -> trace.Tracer:
     """
     Gets an OTEL tracer for the given name
     :param name: Tracer name, usually __name__
@@ -42,7 +46,7 @@ def get_tracer(name: str) -> Tracer:
 
 # Enriches our logs with OTEL cross correlation tokens
 # this gets wired up into logging so you don't need to call this ever
-def _log_otel_enricher(fmt: log.AzLogRecordFormatter, record: log.AzLogRecord, log_data) -> None:
+def _log_otel_enricher(fmt: log.AzLogRecordFormatter, record: log.AzLogRecord, log_data: dict) -> None:
     current_span = trace.get_current_span()
     span_context = current_span.get_span_context()
     trace_id = span_context.trace_id  # Integer
