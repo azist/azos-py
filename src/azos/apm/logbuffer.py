@@ -1,4 +1,7 @@
-"""Memory circular buffer that keeps X log records"""
+"""
+Memory log buffer
+Copyright (C) 2026 Azist, MIT License
+"""
 
 import collections
 import logging
