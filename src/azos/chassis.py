@@ -78,11 +78,12 @@ def expand_var_expressions(val: str | None,
     if val is None:
         return None
 
+    original = val
     i = 0
     while True:
         if i == INCLUDE_MAX_DEPTH:
-            raise ConfigError(f"Expression '{val}' exceeded maximum var expansion depth of {INCLUDE_MAX_DEPTH}. "
-                              f"Look for circular references or missing set env vars.")
+            raise ConfigError(f"Expression '{original}'->'{val}' exceeded maximum var expansion depth of {INCLUDE_MAX_DEPTH}. "
+                              f"Look for circular references or missing env vars.")
 
         matched, val = expand_var_expressions_once(val, resolver, chassis)
 
@@ -237,7 +238,7 @@ class DIContainer:
 
     def purge(self, t_dep: Type | None = None):
         """Drops all dependencies and starts anew, if you supply a type then drops only dependencies of that type"""
-        if not t_dep:
+        if t_dep is None:
           self._deps = { }  # Clear all
         else:
           self._deps.pop(t_dep, None)
@@ -255,10 +256,12 @@ class DIContainer:
         :param name: Optional name, to resolve instance by name, if not used then `*` is assumed
         :return: True if was added, false if already existed and was replaced
         """
-        if not t_dep:
+        if t_dep is None:
             raise TypeError("Missing dependency type")
-        if not instance:
+
+        if instance is None:
             raise ValueError("Missing dependency instance")
+
         if not isinstance(instance, t_dep):
             raise TypeError(f"Mismatch in dep registration of type `{t_dep}`, but instance is not of that type")
 
@@ -266,7 +269,7 @@ class DIContainer:
             name = "*"
 
         named = self._deps.get(t_dep, None) # Get type bucket
-        if not named:
+        if named is None:
             named = { }
             self._deps[t_dep] = named
 
@@ -286,16 +289,18 @@ class DIContainer:
         :param name: Optional name, in NOne then `*` is used for any
         :return: Dependency instance of the requested type or None
         """
-        if not t_dep:
+        if t_dep is None:
             return None
+
         named = self._deps.get(t_dep, None)
-        if not named:
+        if named is None:
             return None;
 
         if not name:
             name = "*"
 
         return named.get(name, None)
+
 
     def get(self, t_dep: Type[T], name: str | None = None) -> T:
         """
@@ -309,7 +314,7 @@ class DIContainer:
         :return: Dependency instance of the requested type or None
         """
         result = self.try_get(t_dep, name)
-        if not result:
+        if result is None:
             raise ValueError(f"Could not resolve dependency requirement {t_dep}('{name}')"
                              f"Revise chassis dependency registration like `chassis.deps.register({t_dep}, instance, '{name}')`")
         return result
@@ -458,10 +463,12 @@ class AppChassis:
             source = fn.read_text()
             # Pre process source
             for x in range(INCLUDE_MAX_DEPTH):
+                was = source
                 source = process_includes(path.parent,
                                           source,
                                           expand_vars=True,
                                           chassis=self) #  #include<!../cfg/log-$(ENV_NAME).ini>
+                if was == source: break
             # ------------------
             config.read_string(source, f"Interpolated config `{str(fn)}`")
 
