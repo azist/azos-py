@@ -103,14 +103,14 @@ class TestComponentRegistration:
     def test_component_without_chassis_raises_error(self):
         """Test that creating component without chassis raises ValueError"""
         with pytest.raises(ValueError, match="requires a non-null AppChassis reference"):
-            MockComponent(None, "invalid")
+            MockComponent(None, "invalid") # pyright: ignore[reportArgumentType]
 
     def test_component_with_invalid_director_raises_error(self):
         """Test that creating component with non-AppComponent director raises TypeError"""
         chassis = AppChassis("test_app_04", __file__, "test")
 
         with pytest.raises(TypeError, match="director must be of type AppComponent or None"):
-            MockComponent(chassis, "comp", director="not_a_component")
+            MockComponent(chassis, "comp", director="not_a_component") # pyright: ignore[reportArgumentType]
 
         chassis.dispose()
 

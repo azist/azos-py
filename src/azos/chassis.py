@@ -395,7 +395,7 @@ class AppChassis(DisposableObject):
       which should use DI instead
       """
       current = AppChassis.__s_current
-      return current if current else AppChassis.__s_default # pyright: ignore[reportReturnType]
+      return current if current is not None else AppChassis.__s_default # pyright: ignore[reportReturnType]
 
     def __init__(self,
                  app_id: str,
