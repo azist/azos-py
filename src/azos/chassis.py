@@ -402,6 +402,8 @@ class AppChassis(DisposableObject):
                  ep_path: str,
                  environment_name: str | None = None,
                  config: ConfigParser | None = None):
+        super().__init__()
+
         self._instance_id = uuid.uuid4().hex
         self._components: List[AppComponent] = []
         self._entry_point_path = os.path.abspath(ep_path)
