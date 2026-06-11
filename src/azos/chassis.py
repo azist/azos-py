@@ -4,13 +4,15 @@ Uniform application chassis pattern
 Copyright (C) 2023, 2026 Azist, MIT License
 
 """
+import logging
 import os
 import re
 import uuid
 import platform
 from pathlib import Path
 from configparser import ConfigParser
-from typing import Any, Type, Dict, List, Optional, Callable, Tuple, TypeVar
+from typing import Any, Sequence, Type, Dict, List, Optional, Callable, Tuple, TypeVar, override
+from azos.oop import DisposableObject
 from azos.stock_content import loader
 
 
@@ -229,12 +231,16 @@ T = TypeVar("T")
 
 class DIContainer:
     """
-    Implements service location/dependency injection pattern by providing a double registry of Dict<Type, Dict<str, instance>>
-    dependency instances
+    Implements service location/dependency injection pattern by providing a double registry of
+    dict[Type, Dict[str, instance]] dependency instances.
+
+    Important: `DIContainer` does not assume any component ownership. Treat it as a specialized data structure
+    for storing and retrieving dependencies. It is the responsibility of the owners/directors to manage dependency
+    life cycles.
     """
 
     def __init__(self) -> None:
-        self._deps: Dict[Type, Dict[str, Any]] = {}
+        self._deps: dict[Type, Dict[str, Any]] = {}
 
     def purge(self, t_dep: Type | None = None):
         """Drops all dependencies and starts anew, if you supply a type then drops only dependencies of that type"""
@@ -351,7 +357,7 @@ class Injector:
         return chassis.deps.get(self.target_type, self.target_name)
 
 
-class AppChassis:
+class AppChassis(DisposableObject):
     """
     Application chassis pattern provides global boilerplate for app instance identification,
     logical host name mapping and configuration root. It is a singleton object which get initialized
@@ -396,27 +402,53 @@ class AppChassis:
                  ep_path: str,
                  environment_name: str | None = None,
                  config: ConfigParser | None = None):
-       self._instance_id = uuid.uuid4().hex
-       self._entry_point_path = os.path.abspath(ep_path)
-       self._app = app_id if app_id else DEFAULT_APP_ID
-       self._instance_tag = self._instance_id[:8] # Tag is a shortened app id
-       self._environment = self._get_environment(environment_name)
-       self._host = platform.node()
-       self._deps = DIContainer()
-       # Must be after _env
-       self._config = self._load_config(config) # use the supplied one or load co-located file
+        self._instance_id = uuid.uuid4().hex
+        self._components: List[AppComponent] = []
+        self._entry_point_path = os.path.abspath(ep_path)
+        self._app = app_id if app_id else DEFAULT_APP_ID
+        self._instance_tag = self._instance_id[:8] # Tag is a shortened app id
+        self._environment = self._get_environment(environment_name)
+        self._host = platform.node()
+        self._deps = DIContainer()
+        # Must be after _env
+        self._config = self._load_config(config) # use the supplied one or load co-located file
 
-       if AppChassis.__s_default is None:
-          AppChassis.__s_default = self
-          self._is_default = True
-       else:
-          AppChassis.__s_current = self
-          self._is_default = False
+        if AppChassis.__s_default is None:
+            AppChassis.__s_default = self
+            self._is_default = True
+        else:
+            AppChassis.__s_current = self
+            self._is_default = False
 
-       # Notify all dependencies
-       for callback in AppChassis.__s_global_dependency_callbacks:
-          if callable(callback):
-             callback()
+        # Notify all dependencies
+        for callback in AppChassis.__s_global_dependency_callbacks:
+            if callable(callback):
+                callback()
+
+    @override
+    def _dispose(self) -> None:
+        if (self._is_default):
+            # Never dispose default instance, it is always present and should not be disposed
+            return
+
+        logger = logging.getLogger("AppChassis")
+
+        all = self._components.copy() # copy to avoid concurrent modification during dispose
+        for c in all:
+            try:
+                c.dispose()
+            except Exception as ex:
+                error = f"Error disposing component {c.__class__.__name__}: {ex}"
+                logger.critical(error)
+
+
+        AppChassis.__s_current = None
+
+        # Notify all dependencies AFTER context switch
+        for callback in AppChassis.__s_global_dependency_callbacks:
+            if callable(callback):
+                callback()
+
 
     def _get_environment(self, environment_name: str | None) -> str:
        """
@@ -515,6 +547,15 @@ class AppChassis:
         return self._app
 
     @property
+    def components(self) -> Sequence["AppComponent"]:
+        """
+        Returns a sequence of components which are registered with this chassis.
+        You can use this for runtime introspection of what components are present in the system, for diagnostics.
+        Returns a readonly copy of the internal component registry
+        """
+        return tuple(self._components)
+
+    @property
     def deps(self) -> DIContainer:
         """
         Returns `DIContainer` which you use to register at entry point and then resolve application dependencies
@@ -532,6 +573,69 @@ class AppChassis:
 
 
 
+class AppComponent(DisposableObject):
+    """
+    Base class for application components which are aware of the chassis and can access its properties and dependencies.
+    Application components get auto registered with app chassis, this way we can get a list of all application
+    components at runtime by accessing `chassis.components` property. This can be used for diagnostics, monitoring, etc.
 
-# Allocate default instance
+    Note:
+     It is app components that own other components (directors). Directors (owners) should know how to deterministically
+     dispose their owned components, but the chassis does not dispose them, it is the responsibility of the owners.
+    """
+
+    _s_sid_counter = 0
+
+    def __init__(self, chassis: AppChassis, director: Optional["AppComponent"] = None) -> None:
+        if chassis is None:
+            raise ValueError(f"AppComponent->{self.__class__.__name__} requires a non-null AppChassis reference")
+
+        if director is not None:
+            if not isinstance(director, AppComponent):
+                raise TypeError(f"AppComponent->{self.__class__.__name__} director must be of type AppComponent or None")
+
+            if director._chassis != chassis:
+                raise ValueError(f"AppComponent->{self.__class__.__name__} director component chassis mismatch")
+
+        super().__init__()
+
+        AppComponent._s_sid_counter += 1
+
+        self._sid = AppComponent._s_sid_counter
+        self._chassis = chassis
+        self._director = director
+        self._chassis._components.append(self) # Register component with the chassis, so we can get a list of all components
+
+
+    @override
+    def _dispose(self) -> None:
+        try:
+            self._chassis._components.remove(self) # Remove self from chassis registry
+        except ValueError: pass # if not found, ignore. This is the most efficient way
+
+    @property
+    def sid(self) -> int:
+        """
+        Returns a numeric sys id of this component, which is unique within the application instance. It is assigned
+        sequentially in order of component creation. Among other things it is used for component listing in tools
+        """
+        return self._sid
+
+    @property
+    def chassis(self) -> AppChassis:
+        """Returns the application chassis instance associated with this component"""
+        return self._chassis
+
+    @property
+    def director(self) -> Optional["AppComponent"]:
+        """
+        Returns the director component which owns/directs this component, or None if this component is not owned by
+        any other component. Directors typically own the lifetime of their components, meaning that when a director gets disposed,
+        it disposes all of its components as well. This is a common pattern in component-based architectures.
+        """
+        return self._director
+
+
+
+# Allocate default instance of chassis
 AppChassis(DEFAULT_APP_ID, __file__)
