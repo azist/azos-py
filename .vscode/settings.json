@@ -26,7 +26,6 @@
     "editor.rulers": [
         120
     ],
-    "python-envs.pythonProjects": [],
     "editor.fontFamily": "'Droid Sans Mono', monospace",
     "python.analysis.typeCheckingMode": "standard",
     "editor.fontSize": 14,
