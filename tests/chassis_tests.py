@@ -68,7 +68,10 @@ def test_30():
     free(dir) # Director kills its children, so we don't need to free them separately
     assert len(app.components) == 0
 
+    assert not app.is_disposed
     app.dispose()
+    assert app.is_disposed
+    assert len(app.components) == 0
     assert AppChassis.get_current_instance() is AppChassis.get_default_instance()
     assert AppChassis.get_current_instance().is_default
 
@@ -85,7 +88,8 @@ def test_31():
     assert len(app.components) == 3
 
     assert not app.is_disposed
-    app.dispose() # we forgot to kill director, but we are killing the app, and it will kill them anyway!!!
+    app.dispose() # we forgot to kill director, but we are killing the app, and it will kill them anyway
+                  # as the component will be left dangling in the app component list
     assert app.is_disposed
     assert len(app.components) == 0 # Got killed via app kill
 
