@@ -9,6 +9,7 @@ import os
 import re
 import uuid
 import platform
+import atexit
 from pathlib import Path
 from configparser import ConfigParser
 from typing import Any, Sequence, Type, Dict, List, Optional, Callable, Tuple, TypeVar, override
@@ -402,6 +403,10 @@ class AppChassis(DisposableObject):
                  ep_path: str,
                  environment_name: str | None = None,
                  config: ConfigParser | None = None):
+        existing = AppChassis.__s_current
+        if existing is not None:
+            raise RuntimeError(f"AppChassis({existing.app}) instance is already allocated. Dispose it first")
+
         super().__init__()
 
         self._instance_id = uuid.uuid4().hex
@@ -428,14 +433,21 @@ class AppChassis(DisposableObject):
                 callback()
 
     @override
-    def _dispose(self) -> None:
-        if (self._is_default):
+    def dispose(self) -> None:
+        if self._is_default:
             # Never dispose default instance, it is always present and should not be disposed
             return
+
+        super().dispose()
+
+    @override
+    def _dispose(self) -> None:
+        # Not called for default instance
 
         logger = logging.getLogger("AppChassis")
 
         all = self._components.copy() # copy to avoid concurrent modification during dispose
+        all.reverse()
         for c in all:
             try:
                 c.dispose()
@@ -637,6 +649,11 @@ class AppComponent(DisposableObject):
         """
         return self._director
 
+
+def _atexit_cleanup():
+    AppChassis.get_current_instance().dispose()
+
+atexit.register(_atexit_cleanup)
 
 
 # Allocate default instance of chassis
