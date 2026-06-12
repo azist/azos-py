@@ -1,7 +1,10 @@
 """
-Uniform application chassis pattern
+Uniform application chassis pattern.
+Based on Azos.net implementation but with a more opinionated design and Pythonic approach. It is a singleton object
+which gets initialized at the application entry point (such as `main.py`) and provides global boilerplate for app instance identification,
+logical host name mapping and configuration root. It also provides a `DIContainer` for dependency injection and service location.
 
-Copyright (C) 2023, 2026 Azist, MIT License
+Copyright (C) 2018 - 2026 Azist, MIT License
 
 """
 import logging
