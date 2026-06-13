@@ -2,7 +2,7 @@
 Dynamic data descriptors
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from types import EllipsisType
 from typing import Any
 
@@ -55,7 +55,7 @@ class Descriptor:
 
     @property
     def data(self) -> dict:
-        """Returns underlying raw data dictionary"""
+        """Returns the underlying raw data dictionary"""
         return self._data
 
 
@@ -68,12 +68,11 @@ class Descriptor:
         return self._chassis
 
 
-    def try_navigate(self, path: str) -> tuple[bool, Any | None | EllipsisType]:
+    def try_navigate(self, path: str) -> tuple[bool, Any | None]:
         """
         Tries to navigate the data using the given path as far as possible. Returns a tuple of (success, value) where
         success is a boolean indicating whether the navigation was successful navigating the whole path and value is the
-        navigated value (including None) or ellipsis if nothing could be returned at all (e.g. the first key in the
-          path is missing).
+        navigated value (including None) up to the point that was navigated
 
         Path segments are separated by "/":
           - Plain name: dictionary key lookup, e.g. "a/b/c"
@@ -90,25 +89,28 @@ class Descriptor:
             if seg == "":
                 continue  # skip empty segments produced by leading/trailing slashes
 
+            if node is None:
+                return False, None
+
             if seg[0] == "#":
                 # List index navigation
                 if not isinstance(node, list):
-                    return False, ...
+                    return False, node
                 try:
                     idx = int(seg[1:])
                 except ValueError:
-                    return False, ...
+                    return False, node
                 if idx < 0 or idx >= len(node):
-                    return False, ...
+                    return False, node
                 node = node[idx]
 
             elif seg[0] == "$":
                 # Attribute search navigation: $key=value
                 if not isinstance(node, list):
-                    return False, ...
+                    return False, node
                 eq = seg.find("=", 1)
                 if eq < 0:
-                    return False, ...
+                    return False, node
                 attr = seg[1:eq]
                 val = seg[eq + 1:]
                 found = None
@@ -129,15 +131,15 @@ class Descriptor:
                         except AttributeError:
                             pass
                 if not found_flag:
-                    return False, ...
+                    return False, node
                 node = found
 
             else:
                 # Plain dictionary key navigation
                 if not isinstance(node, dict):
-                    return False, ...
+                    return False, node
                 if seg not in node:
-                    return False, ...
+                    return False, node
                 node = node[seg]
 
         return True, node
@@ -152,7 +154,34 @@ class Descriptor:
         return value if ok else ...
 
 
-    def _var_resolver(self, var_name: str) -> tuple[bool, str]:
+    def navigate_required_path(self, path: str) -> Any | None:
+        """
+        Navigates the data using the given path. Returns the value associated with the path if it exists (including None).
+        Raises ConfigError if the path does not exist in the descriptor.
+        """
+        ok, value = self.try_navigate(path)
+        if not ok:
+            raise ConfigError(f"Required path `{path}` is missing in descriptor data")
+        return value
+
+
+    def navigate_required_value(self, path: str) -> Any:
+        """
+        Navigates the data using the given path. Returns the value associated with the path if it exists and is not None.
+        Raises ConfigError if the path does not exist in the descriptor or if the value is None.
+        """
+        ok, value = self.try_navigate(path)
+        if not ok:
+            raise ConfigError(f"Required path `{path}` is missing in descriptor data")
+        if value is None:
+            raise ConfigError(f"Required value at path `{path}` is null in descriptor data")
+        return value
+
+
+    def var_resolver(self, var_name: str) -> tuple[bool, str]:
+        """
+        Resolves a variable name to its value for the purpose of evaluating variable expressions in descriptor values.
+        """
         got = self.navigate(var_name)
         if got is ...:
             raise ConfigError(f"Var expr `{var_name}` could not be resolved in descriptor data")
@@ -173,7 +202,7 @@ class Descriptor:
         if isinstance(value, str):
             if not verbatim:
                 # value = eval(value)  EVALUATE string
-                value = expand_var_expressions(value, resolver=self._var_resolver, chassis=self._chassis)
+                value = expand_var_expressions(value, resolver=self.var_resolver, chassis=self._chassis)
                 if value is None:
                     return default
             try:
@@ -198,7 +227,7 @@ class Descriptor:
             return float(value)
         if isinstance(value, str):
             if not verbatim:
-                value = expand_var_expressions(value, resolver=self._var_resolver, chassis=self._chassis)
+                value = expand_var_expressions(value, resolver=self.var_resolver, chassis=self._chassis)
                 if value is None:
                     return default
             try:
@@ -227,7 +256,7 @@ class Descriptor:
             return value != 0
         if isinstance(value, str):
             if not verbatim:
-                value = expand_var_expressions(value, resolver=self._var_resolver, chassis=self._chassis)
+                value = expand_var_expressions(value, resolver=self.var_resolver, chassis=self._chassis)
                 if value is None:
                     return default
             lv = value.strip().lower()
@@ -251,7 +280,7 @@ class Descriptor:
             return default
         if isinstance(value, str):
             if not verbatim:
-                expanded = expand_var_expressions(value, resolver=self._var_resolver, chassis=self._chassis)
+                expanded = expand_var_expressions(value, resolver=self.var_resolver, chassis=self._chassis)
                 return expanded if expanded is not None else default
             return value
         return str(value)
@@ -288,12 +317,12 @@ class Descriptor:
             return value
         if isinstance(value, (int, float)):
             try:
-                return datetime.utcfromtimestamp(value)
+                return datetime.fromtimestamp(value, timezone.utc)
             except (OSError, OverflowError, ValueError):
                 return default
         if isinstance(value, str):
             if not verbatim:
-                value = expand_var_expressions(value, resolver=self._var_resolver, chassis=self._chassis)
+                value = expand_var_expressions(value, resolver=self.var_resolver, chassis=self._chassis)
                 if value is None:
                     return default
             s = value.strip()

@@ -311,12 +311,12 @@ class TestAsDatetime:
     def test_unix_int_timestamp(self, desc):
         """Integer Unix timestamp is converted via utcfromtimestamp."""
         result = desc.as_datetime("dt_unix_int")
-        assert result == datetime.utcfromtimestamp(1705323930)
+        assert result == datetime.fromtimestamp(1705323930, timezone.utc)
 
     def test_unix_float_timestamp(self, desc):
         """Float Unix timestamp is also accepted."""
         result = desc.as_datetime("dt_unix_float")
-        assert result == datetime.utcfromtimestamp(1705323930.5)
+        assert result == datetime.fromtimestamp(1705323930.5, timezone.utc)
 
     def test_iso_date_only(self, desc):
         """ISO 8601 date-only string."""
