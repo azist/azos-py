@@ -6,7 +6,7 @@ from datetime import datetime
 from types import EllipsisType
 from typing import Any
 
-from azos.chassis import AppChassis, expand_var_expressions
+from azos.chassis import AppChassis, ConfigError, expand_var_expressions
 
 
 def override_dict(base: dict, override: dict, deep: bool = True, inplace: bool = False) -> dict:
@@ -153,8 +153,10 @@ class Descriptor:
 
 
     def _var_resolver(self, var_name: str) -> tuple[bool, str]:
-        # todo
-        return True, ""
+        got = self.navigate(var_name)
+        if got is ...:
+            raise ConfigError(f"Var expr `{var_name}` could not be resolved in descriptor data")
+        return True, got if got is not None else ""  # always return True to stop expression eval
 
 
     def as_int(self, path: str, default: int | None = None, verbatim: bool = False) -> int | None:
