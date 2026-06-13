@@ -41,6 +41,10 @@ LOG_CHANNEL_SEC = "sec"
 LOG_CHANNEL_ANL = "anl"
 """Analytics, such as dashboard feeds"""
 
+HTTP_HDR_LOG_REL = "sky-log-rel"
+"""Name of the header which is used to teleport log correlation tag"""
+
+
 # supports threading and async such as FastApi etc.
 _ts_log_id: contextvars.ContextVar[str | None] = contextvars.ContextVar("log_id", default=None)
 
@@ -53,6 +57,17 @@ def new_log_id() -> str:
   result = uuid.uuid4().hex
   _ts_log_id.set(result)
   return result
+
+
+def safe_json_default_handler(obj):
+    """Fallabck handler that dumps json payload which can not be serialized"""
+    t = type(obj)
+    return f"CANT_JSON<{t.__module__}::{t.__qualname__}>"
+
+
+def safe_json_dumps(what) -> str:
+    """Safe JSON object serializer that handles non-serializable object types"""
+    return json.dumps(what, separators=(",", ":"), default=safe_json_default_handler)
 
 
 class AzLogRecord(logging.LogRecord):
@@ -107,17 +122,8 @@ class AzLogRecordFormatter(logging.Formatter):
         if callable(AzLogRecordFormatter._hook_enrichment_func):
             AzLogRecordFormatter._hook_enrichment_func(self, record, log_record)
 
-
-    def format(self, record: logging.LogRecord):
-        """
-        Prepares structured logging structure:
-        This is ideal for structured logging in containerized environments.
-        """
-
-        if not isinstance(record, AzLogRecord):
-            return super().format(record)
-
-        # Start with the basic log record attributes
+    def build_log_dict(self, record: AzLogRecord) -> dict:
+        """Builds structured log record"""
         log_record = {
             "id": record.sys_id,
             "rel": None,
@@ -161,6 +167,16 @@ class AzLogRecordFormatter(logging.Formatter):
 
         self.enrich(record, log_record)
 
+        return log_record
+
+    def format(self, record: logging.LogRecord):
+        """Formats record content"""
+
+        if not isinstance(record, AzLogRecord):
+            return super().format(record)
+
+        log_record =self.build_log_dict(record)
+
         return self.do_format(record, log_record)
 
     def do_format(self, record, log_record):
@@ -171,14 +187,10 @@ class AzLogRecordFormatter(logging.Formatter):
 
 
 class AzLogRecordJsonFormatter(AzLogRecordFormatter):
-    """
-    Implements formatter for K8s structured log streaming
-    """
+    """Implements formatter for K8s structured log streaming"""
     def do_format(self, record, log_record):
-        """
-        Formats as terse json for K8s streaming
-        """
-        return json.dumps(log_record, separators=(',', ':'))
+        """Formats as terse json for K8s streaming"""
+        return safe_json_dumps(log_record)
 
 
 class AzLogRecordVisualFormatter(AzLogRecordFormatter):
@@ -216,7 +228,7 @@ class AzLogRecordVisualFormatter(AzLogRecordFormatter):
         segs.append(f"{msg}")
 
         if "d" in log_record:
-            js = json.dumps(log_record["d"])
+            js = safe_json_dumps(log_record["d"])
             segs.append(f"\n {fg1}   └─► {fg2}{js}{ANSIColors.RESET}")
 
         err = log_record.get("error", None)
@@ -291,47 +303,58 @@ class LogStrand(logging.LoggerAdapter):
 #warning: do not use __ mangling for Spark UDF teleportation
 def _activate_az_logging() -> None:
 
-  chassis = AppChassis.get_current_instance()
-  conf = chassis.config
+    chassis = AppChassis.get_current_instance()
+    conf = chassis.config
 
 
-  # one time use Latch
-  if logging.getLogRecordFactory() is not _az_log_record_factory:
-      logging.setLogRecordFactory(_az_log_record_factory)
+    # one time use Latch
+    if logging.getLogRecordFactory() is not _az_log_record_factory:
+        logging.setLogRecordFactory(_az_log_record_factory)
 
 
-  # Get root logger
-  root = logging.getLogger()
-  root.setLevel(logging.DEBUG)
+    # Get root logger
+    root = logging.getLogger()
+    root.setLevel(logging.DEBUG)
 
-  mode = ""
-  if conf.has_section(CFG_LOG_SECTION):
-      mode = conf.get(CFG_LOG_SECTION, "mode", fallback="")
-      levels = [(key[len(CFG_LOG_LEVEL_ATTR_PFX):], conf.get(CFG_LOG_SECTION, key, fallback=None))
-                for key in conf.options(CFG_LOG_SECTION) if key.startswith(CFG_LOG_LEVEL_ATTR_PFX)]
-      for one in levels:
-          if one[1] is not None:
-            logging.getLogger(one[0]).setLevel(one[1])
+    mode = ""
+    if conf.has_section(CFG_LOG_SECTION):
+        mode = conf.get(CFG_LOG_SECTION, "mode", fallback="")
+        levels = [(key[len(CFG_LOG_LEVEL_ATTR_PFX):], conf.get(CFG_LOG_SECTION, key, fallback=None))
+                    for key in conf.options(CFG_LOG_SECTION) if key.startswith(CFG_LOG_LEVEL_ATTR_PFX)]
+        for one in levels:
+            if one[1] is not None:
+                logging.getLogger(one[0]).setLevel(one[1])
 
 
-  # Create the Handler (StreamHandler directs output to sys.stdout/stderr)
-  # We explicitly target sys.stdout for all general logs
-  handler = logging.StreamHandler(sys.stdout)
+    # Create the Handler (StreamHandler directs output to sys.stdout/stderr)
+    # We explicitly target sys.stdout for all general logs
+    handler = logging.StreamHandler(sys.stdout)
 
-  # Formatter and set to handler
+    # Formatter and set to handler
 
-  formatter = AzLogRecordVisualFormatter() if mode == "visual" else \
-                AzLogRecordTerseFormatter() if mode == "terse" else \
-                AzLogRecordJsonFormatter()
+    formatter = AzLogRecordVisualFormatter() if mode == "visual" else \
+                    AzLogRecordTerseFormatter() if mode == "terse" else \
+                    AzLogRecordJsonFormatter()
 
-  handler.setFormatter(formatter)
+    handler.setFormatter(formatter)
 
-  # Clear any existing handlers and add the new one
-  if root.hasHandlers():
-      root.handlers.clear()
+    # Clear any existing handlers and add the new one
+    if root.hasHandlers():
+        root.handlers.clear()
 
-  # 6. Activate handler at root
-  root.addHandler(handler)
+    # Activate handler at root
+    root.addHandler(handler)
+
+    if conf.has_section(CFG_LOG_SECTION):
+        # Turn on memory log buffering
+        mem_cap = conf.getint(CFG_LOG_SECTION, "memory_buffer_capacity", fallback=0)
+        if mem_cap > 0:
+            from azos.apm.logbuffer import MemoryLogBuffer, MemoryLogBufferHandler
+            memory_log_buffer = MemoryLogBuffer(mem_cap)
+            mem_handler = MemoryLogBufferHandler(memory_log_buffer)
+            mem_handler.setFormatter(formatter)
+            root.addHandler(mem_handler)
+            MemoryLogBuffer.set_global(memory_log_buffer)
 
 
 #to be used in PySpark jobs
@@ -343,7 +366,7 @@ def get_pyspark_logger(name: str | None) -> logging.Logger:
 
 # Plumbing for Azos Application chassis load event
 def __app_chassis_load():
-    logging.debug("Azos APM Log module re loaded upon app chassis")
+    logging.debug("App chassis loaded")
     _activate_az_logging()
 
 
@@ -351,4 +374,4 @@ def __app_chassis_load():
 # Install global app chassis hook
 AppChassis.register_global_dependency_callback(__app_chassis_load)
 _activate_az_logging()
-#end.
+# end.

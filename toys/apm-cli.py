@@ -1,13 +1,15 @@
 # This is a manual test app which tests APM from CLI interface
-import traceback
 
 # Bootstrap the application chassis
-from azos import chassis
-chassis.AppChassis("toy-apm-cli", __file__)
+import gc
+from typing import override
+
+from azos.chassis import AppChassis, AppComponent
 
 from azos.apm.log import LogStrand
 from azos.apm.otel import get_tracer
 
+chassis = AppChassis("toy-apm-cli", __file__)
 
 log = LogStrand("app.body", rel="self")
 log.info("Starting toy-apm-cli app...")
@@ -36,10 +38,8 @@ for x in range(3):
 try:
     x = 1 / 0
 except Exception as error:
-    log.error("Exception With exc_info", exc_info=True)
-
-    tb = traceback.format_exc()
-    log.error("Exception With Traceback", extra={"error": tb})
+    log.exception("An exception occurred")
+   # log.error("Exception With exc_info", exc_info=True)
 
 # OpenTelemetry example: outer and inner spans with logging in each
 tracer = get_tracer(__name__)
@@ -58,3 +58,24 @@ with tracer.start_as_current_span("outer-operation") as outer_span:
     log.info("Exited inner span, back in outer span", extra={"otel_span": "outer-operation"})
 
 log.info("App finished")
+
+class FakeComponent(AppComponent):
+    def __init__(self, chassis: AppChassis):
+        super().__init__(chassis)
+        log.info("Creating a new component", extra={"component_id": self.sid})
+
+    @override
+    def _dispose(self) -> None:
+        log.info("Disposing component", extra={"component_id": self.sid})
+        super()._dispose()
+
+for i in range(5):
+    comp = FakeComponent(chassis)
+
+
+#chassis.dispose()
+#AppChassis("ssss", __file__) # This should fail because the default chassis is already allocated
+
+#chassis._components = [] # Simulate a leak by removing references to components without disposing them
+#gc.collect()
+

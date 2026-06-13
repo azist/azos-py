@@ -100,13 +100,10 @@ def test_register_mismatch_type_raises_type_error():
     assert "Mismatch in dep registration" in str(exc_info.value)
 
 
-def test_register_falsey_instance_current_behavior_raises_value_error():
+def test_register_falsey_instance():
     container = DIContainer()
 
-    with pytest.raises(ValueError) as exc_info:
-        container.register(IService, FalseyService())
-
-    assert "Missing dependency instance" in str(exc_info.value)
+    assert container.register(IService, FalseyService())
 
 
 def test_try_get_none_type_returns_none():
