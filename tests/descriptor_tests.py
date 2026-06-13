@@ -177,29 +177,29 @@ class TestDictNavigation:
     def test_missing_top_level_key(self):
         ok, val = self.d.try_navigate("missing")
         assert ok is False
-        assert val is ...
+        assert val is self.d.data  # partial: stayed at root
 
     def test_missing_nested_key(self):
         ok, val = self.d.try_navigate("a/b/NOPE")
         assert ok is False
-        assert val is ...
+        assert val == {"c": "leaf", "d": None, "e": 0, "f": False}  # partial: landed on a/b
 
     def test_key_on_non_dict_node(self):
         """'top' is an int; going deeper should fail."""
         ok, val = self.d.try_navigate("top/x")
         assert ok is False
-        assert val is ...
+        assert val == 42  # partial: landed on 'top'
 
     def test_key_on_list_node(self):
         """'a/nums' is a list; plain key navigation should fail."""
         ok, val = self.d.try_navigate("a/nums/foo")
         assert ok is False
-        assert val is ...
+        assert val == [10, 20, 30, 40, 50]  # partial: landed on 'a/nums'
 
     def test_key_on_none_leaf(self):
         ok, val = self.d.try_navigate("none_val/x")
         assert ok is False
-        assert val is ...
+        assert val is None  # partial: landed on None
 
 
 # ===========================================================================
@@ -239,44 +239,44 @@ class TestIndexNavigation:
     def test_index_out_of_bounds_positive(self):
         ok, val = self.d.try_navigate("a/nums/#99")
         assert ok is False
-        assert val is ...
+        assert val == [10, 20, 30, 40, 50]  # partial: landed on the list
 
     def test_index_zero_on_empty_list(self):
         ok, val = self.d.try_navigate("empty_list/#0")
         assert ok is False
-        assert val is ...
+        assert val == []  # partial: landed on the empty list
 
     def test_negative_index_fails(self):
         """Negative indices are not supported."""
         ok, val = self.d.try_navigate("a/nums/#-1")
         assert ok is False
-        assert val is ...
+        assert val == [10, 20, 30, 40, 50]  # partial: landed on the list
 
     def test_hash_on_non_list(self):
         """Applying # to a dict node should fail."""
         ok, val = self.d.try_navigate("a/#0")
         assert ok is False
-        assert val is ...
+        assert isinstance(val, dict)  # partial: landed on 'a' dict
 
     def test_hash_on_scalar(self):
         ok, val = self.d.try_navigate("top/#0")
         assert ok is False
-        assert val is ...
+        assert val == 42  # partial: landed on 'top'
 
     def test_hash_non_integer_suffix(self):
         ok, val = self.d.try_navigate("a/nums/#abc")
         assert ok is False
-        assert val is ...
+        assert val == [10, 20, 30, 40, 50]  # partial: landed on the list
 
     def test_hash_empty_suffix(self):
         ok, val = self.d.try_navigate("a/nums/#")
         assert ok is False
-        assert val is ...
+        assert val == [10, 20, 30, 40, 50]  # partial: landed on the list
 
     def test_hash_float_suffix(self):
         ok, val = self.d.try_navigate("a/nums/#1.5")
         assert ok is False
-        assert val is ...
+        assert val == [10, 20, 30, 40, 50]  # partial: landed on the list
 
     def test_deeply_nested_list_of_lists(self):
         d = Descriptor({"matrix": [[1, 2, 3], [4, 5, 6]]})
@@ -287,7 +287,7 @@ class TestIndexNavigation:
     def test_index_then_missing_key(self):
         ok, val = self.d.try_navigate("a/items/#0/NOPE")
         assert ok is False
-        assert val is ...
+        assert val == {"id": 1, "name": "alpha"}  # partial: landed on items[0]
 
 
 # ===========================================================================
@@ -334,33 +334,33 @@ class TestAttrSearchDictNavigation:
     def test_no_match_returns_ellipsis(self):
         ok, val = self.d.try_navigate("a/items/$id=999")
         assert ok is False
-        assert val is ...
+        assert isinstance(val, list)  # partial: landed on items list
 
     def test_attr_not_present_on_any_item(self):
         ok, val = self.d.try_navigate("a/items/$nonexistent=1")
         assert ok is False
-        assert val is ...
+        assert isinstance(val, list)  # partial: landed on items list
 
     def test_dollar_on_non_list(self):
         ok, val = self.d.try_navigate("a/b/$id=1")
         assert ok is False
-        assert val is ...
+        assert isinstance(val, dict)  # partial: landed on a/b dict
 
     def test_dollar_on_scalar(self):
         ok, val = self.d.try_navigate("top/$id=1")
         assert ok is False
-        assert val is ...
+        assert val == 42  # partial: landed on 'top'
 
     def test_dollar_missing_equals(self):
         ok, val = self.d.try_navigate("a/items/$id")
         assert ok is False
-        assert val is ...
+        assert isinstance(val, list)  # partial: landed on items list
 
     def test_dollar_only_equals_sign(self):
         """$=value — empty attribute name."""
         ok, val = self.d.try_navigate("a/items/$=1")
         assert ok is False
-        assert val is ...
+        assert isinstance(val, list)  # partial: landed on items list
 
     def test_dollar_empty_value(self):
         d = Descriptor({"lst": [{"k": ""}]})
@@ -386,7 +386,7 @@ class TestAttrSearchDictNavigation:
     def test_dollar_on_empty_list(self):
         ok, val = self.d.try_navigate("empty_list/$id=1")
         assert ok is False
-        assert val is ...
+        assert val == []  # partial: landed on empty list
 
 
 # ===========================================================================
@@ -417,12 +417,12 @@ class TestAttrSearchObjectNavigation:
     def test_no_match_on_objects(self):
         ok, val = self.d.try_navigate("users/$id=99")
         assert ok is False
-        assert val is ...
+        assert isinstance(val, list)  # partial: landed on users list
 
     def test_missing_attr_on_objects(self):
         ok, val = self.d.try_navigate("users/$email=x@x.com")
         assert ok is False
-        assert val is ...
+        assert isinstance(val, list)  # partial: landed on users list
 
     def test_chained_after_object_dollar_plain_key_fails(self):
         """
@@ -434,7 +434,7 @@ class TestAttrSearchObjectNavigation:
         d = Descriptor({"lst": objs})
         ok, val = d.try_navigate("lst/$id=1/nested/deep")
         assert ok is False
-        assert val is ...
+        assert isinstance(val, SimpleObj)  # partial: landed on the matched object
 
     def test_chained_after_dict_dollar(self):
         """After $-searching a dict item, further key navigation works fine."""
@@ -487,7 +487,7 @@ class TestMixedNavigation:
         d = Descriptor({"a": {"b": [1, 2, 3]}})
         ok, val = d.try_navigate("a/b/c")  # b is a list, not a dict
         assert ok is False
-        assert val is ...
+        assert val == [1, 2, 3]  # partial: landed on 'a/b'
 
     def test_index_in_middle_of_path(self):
         d = Descriptor({"rows": [{"cells": ["x", "y", "z"]}]})
