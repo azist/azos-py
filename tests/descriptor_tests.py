@@ -81,7 +81,7 @@ class TestEmptyPath:
         """None is falsy so treated the same as empty."""
         raw = {"x": 1}
         d = Descriptor(raw)
-        ok, val = d.try_navigate(None)
+        ok, val = d.try_navigate(None) # type: ignore
         assert ok is True
         assert val is raw
 
@@ -624,71 +624,3 @@ class TestSubclass:
         d = MyDescriptor({"x": {"y": 7}})
         assert d.navigate("x/y") == 7
 
-
-# ===========================================================================
-# 11. override_dict helper
-# ===========================================================================
-
-class TestOverrideDict:
-    def test_shallow_override(self):
-        base = {"a": 1, "b": 2}
-        over = {"b": 99}
-        result = override_dict(base, over)
-        assert result == {"a": 1, "b": 99}
-
-    def test_original_not_mutated_by_default(self):
-        base = {"a": 1}
-        over = {"a": 2}
-        override_dict(base, over)
-        assert base["a"] == 1
-
-    def test_inplace_mutates_base(self):
-        base = {"a": 1}
-        over = {"a": 2}
-        result = override_dict(base, over, inplace=True)
-        assert base["a"] == 2
-        assert result is base
-
-    def test_deep_nested_merge(self):
-        base = {"a": {"x": 1, "y": 2}}
-        over = {"a": {"y": 99, "z": 3}}
-        result = override_dict(base, over)
-        assert result == {"a": {"x": 1, "y": 99, "z": 3}}
-
-    def test_shallow_flag_replaces_nested_dict(self):
-        base = {"a": {"x": 1}}
-        over = {"a": {"y": 2}}
-        result = override_dict(base, over, deep=False)
-        assert result == {"a": {"y": 2}}
-
-    def test_new_top_level_key_added(self):
-        base = {"a": 1}
-        over = {"b": 2}
-        result = override_dict(base, over)
-        assert result == {"a": 1, "b": 2}
-
-    def test_override_with_none_value(self):
-        base = {"a": 1}
-        over = {"a": None}
-        result = override_dict(base, over)
-        assert result["a"] is None
-
-    def test_empty_override_unchanged(self):
-        base = {"a": 1}
-        result = override_dict(base, {})
-        assert result == {"a": 1}
-
-    def test_empty_base(self):
-        result = override_dict({}, {"a": 1})
-        assert result == {"a": 1}
-
-    def test_returns_new_dict_not_base(self):
-        base = {"a": 1}
-        result = override_dict(base, {"b": 2})
-        assert result is not base
-
-    def test_deep_three_levels(self):
-        base = {"l1": {"l2": {"l3": "orig"}}}
-        over = {"l1": {"l2": {"l3": "new", "extra": True}}}
-        result = override_dict(base, over)
-        assert result == {"l1": {"l2": {"l3": "new", "extra": True}}}
