@@ -1,5 +1,11 @@
 """
-Dynamic data descriptors
+Descriptors provide convenient way of working with structured data represented as dictionaries, such as JWT claims,
+configuration sections, rulesets, or any other hierarchical data. They provide methods for navigating the data using
+path expressions, and for accessing values in the data with type conversion and variable expression evaluation.
+The ideology is based on the battle tested approach in 10s of large scale enterprise systems using NFX/Azos C# codebase,
+but the implementation is adapted to Python idioms and capabilities.
+
+Copyright (C) 2019 - 2026 Azist, MIT License
 """
 
 from datetime import datetime, timezone
