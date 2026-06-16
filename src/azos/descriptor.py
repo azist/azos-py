@@ -30,7 +30,7 @@ def override_dict(base: dict,
 
     The base dictionary can contain special pragmas to control the overriding behavior:
 
-    - If a dictionary in the base contains the specified key by `override_pragma`, it will read the pragma value and
+    - If a dictionary in the base contains the key specified by `override_pragma`, it will read the pragma value and
       apply it as follows:
       - If the pragma value is "replace", the value from override dictionary will completely replace the base dictionary
       - If the pragma value is "fail" an attempt to override this value will raise a ConfigError
@@ -107,7 +107,6 @@ def override_dict(base: dict,
 
 
 
-
 class Descriptor:
     """
     A descriptor is a wrapper around a dictionary of key-value pairs. It provides a convenient way
@@ -120,11 +119,14 @@ class Descriptor:
     Arguments:
      - data: The underlying dictionary of the descriptor. If not provided, an empty dictionary will be used.
      - chassis: An optional AppChassis instance that can be used for evaluating variable expressions in the descriptor values.
+     - scope: An optional Descriptor instance that can be used as the scope for variable resolution.
+     - scope_path: An optional string representing the path of this descriptor within the parent scope descriptor.
     """
-    def __init__(self, data: dict | None = None, chassis: AppChassis | None = None):
-        self._data: dict = data if data is not None else {}
+    def __init__(self, data: dict | None = None, chassis: AppChassis | None = None, scope: Descriptor | None = None, scope_path: str = ""):
+        self._data: dict = data or {}
         self._chassis: AppChassis | None = chassis
-
+        self._scope: Descriptor = scope or self
+        self._scope_path: str = scope_path or ""
 
     def __getitem__(self, path) -> Any | None | EllipsisType:
         """Returns the value associated with the given key in the descriptor if it exists or ... to indicate that such key is not present"""
@@ -152,11 +154,32 @@ class Descriptor:
         return self._chassis
 
 
+    @property
+    def scope(self) -> Descriptor:
+        """
+        Returns the scope descriptor for this descriptor. The scope is used as the context for variable resolution
+        when evaluating variable expressions in the descriptor values. By default, the scope is the descriptor itself,
+        but it can be set to another descriptor to allow cross-referencing between descriptors, which is used in
+        large "configuration trees" where we pass a "config section descriptor" as the argument to some method but it
+        relies on variables evaluated in a "root config descriptor" that is the parent of the section descriptor in the config tree.
+        """
+        return self._scope
+
+
+    @property
+    def scope_path(self) -> str:
+        """
+        Returns the path of this descriptor within the parent scope descriptor, if any. This is used for error messages
+        and variable resolution to provide context about where this descriptor is located within the scoping parent descriptor
+        """
+        return self._scope_path
+
+
     def try_navigate(self, path: str) -> tuple[bool, Any | None]:
         """
         Tries to navigate the data using the given path as far as possible. Returns a tuple of (success, value) where
         success is a boolean indicating whether the navigation was successful navigating the whole path and value is the
-        navigated value (including None) up to the point that was navigated
+        navigated value (including None) up to the point that was navigated in partial navigation
 
         Path segments are separated by "/":
           - Plain name: dictionary key lookup, e.g. "a/b/c"
@@ -229,10 +252,12 @@ class Descriptor:
         return True, node
 
 
-    def navigate(self, path: str) -> Any | None | EllipsisType:
+    def try_navigate_value(self, path: str) -> Any | None | EllipsisType:
         """
         Navigates the data using the given path. Returns the value associated with the path if it exists (including None),
         or ... to indicate that such path did not land at an existing descriptor node.
+
+        Contrast with `navigate()` method, which makes path/value navigation conditional depending on prefix modifiers
         """
         ok, value = self.try_navigate(path)
         return value if ok else ...
@@ -241,35 +266,69 @@ class Descriptor:
     def navigate_required_path(self, path: str) -> Any | None:
         """
         Navigates the data using the given path. Returns the value associated with the path if it exists (including None).
-        Raises ConfigError if the path does not exist in the descriptor.
+        Raises ConfigError if the path does not exist in the descriptor. Note: the value can still be None if the path
+        exists but is set to null/None, this method only checks for the existence of the path in the descriptor, not the value.
+        Use navigate_required_value() if you want to also check that the value is not None.
+
+        Contrast with `navigate()` method, which makes path/value navigation conditional depending on prefix modifiers
         """
         ok, value = self.try_navigate(path)
         if not ok:
-            raise ConfigError(f"Required path `{path}` is missing in descriptor data")
+            raise ConfigError(f"Required path `{path}` is missing in {self.__class__.__name__}[`{self.scope_path}`]")
         return value
 
 
     def navigate_required_value(self, path: str) -> Any:
         """
         Navigates the data using the given path. Returns the value associated with the path if it exists and is not None.
-        Raises ConfigError if the path does not exist in the descriptor or if the value is None.
+        Raises ConfigError if the path does not exist in the descriptor or if the value is None/null.
+
+        Contrast with `navigate()` method, which makes path/value navigation conditional depending on prefix modifiers
         """
         ok, value = self.try_navigate(path)
         if not ok:
-            raise ConfigError(f"Required path `{path}` is missing in descriptor data")
+            raise ConfigError(f"Required path `{path}` is missing in {self.__class__.__name__}[`{self.scope_path}`]")
         if value is None:
-            raise ConfigError(f"Required value at path `{path}` is null in descriptor data")
+            raise ConfigError(f"Required value at path `{path}` is null in {self.__class__.__name__}[`{self.scope_path}`]")
         return value
+
+
+    def navigate(self, path: str) -> Any | None | EllipsisType:
+        """
+        Navigates the value using the given path with requirement prefix specifier:
+          - If the path starts with "!" requirements modifier then treats the path and the pointed-to value as the
+            required one and raises ConfigError if the path does not exist or if the value is None/null.
+          - If the path starts with "!?" requirements modifier then treats the path as required but allows the value
+            to be None and raises ConfigError only if the path does not exist (but the value can be None/null).
+          - Otherwise, returns the value associated with the path or None if the value is set to null/None or ... if
+            the path does not exist in the descriptor.
+
+        Note:
+          this is the only method that takes the requirement modifiers in the path into account, the other navigation
+          methods like navigate_required_path() and navigate_required_value() are not aware of the modifiers and
+          navigate strictly according to their semantics, so you can use them for more explicit navigation when needed.
+        """
+        if path.startswith("!?"):
+            path = path[2:]
+            return self.navigate_required_path(path)
+
+        if path.startswith("!"):
+            path = path[1:]
+            return self.navigate_required_value(path)
+
+        return self.try_navigate_value(path)
 
 
     def var_resolver(self, var_name: str) -> tuple[bool, str]:
         """
         Resolves a variable name to its value for the purpose of evaluating variable expressions in descriptor values.
+        Returns a tuple of (found, value), return (True,..) to stop expr eval and use the value
         """
-        got = self.navigate(var_name)
+        got = self._scope.navigate(var_name) # this would conditionally throw for required paths/values
         if got is ...:
-            raise ConfigError(f"Var expr `{var_name}` could not be resolved in descriptor data")
-        return True, got if got is not None else ""  # always return True to stop expression eval
+            return False, ""  # variable not found, return False to continue expression evaluation
+
+        return True, got if got is not None else ""
 
 
     def as_int(self, path: str, default: int | None = None, verbatim: bool = False) -> int | None:
