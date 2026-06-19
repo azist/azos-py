@@ -9,15 +9,20 @@ Copyright (C) 2018 - 2026 Azist, MIT License
 """
 import logging
 import os
+import atexit
 import re
 import uuid
 import platform
-import atexit
+from abc import abstractmethod
+from enum import Enum
+from typing import (Any, Protocol, Sequence, Type, Dict, List, Optional,
+                    Callable, Tuple, TypeVar, override, runtime_checkable)
 from pathlib import Path
 from configparser import ConfigParser
-from typing import Any, Sequence, Type, Dict, List, Optional, Callable, Tuple, TypeVar, override
+
 from azos.oop import DisposableObject
 from azos.stock_content import loader
+
 
 
 ENV_ENVIRONMENT_NAME_VAR = "SKY_ENVIRONMENT"
@@ -590,6 +595,47 @@ class AppChassis(DisposableObject):
 
 
 
+# ##########################################################
+# ############       COMPONENTS     ########################
+# ##########################################################
+
+
+class IAppComponent(Protocol):
+    """
+    Protocol defining the contract for application components which are aware of the chassis and can access its
+    properties and dependencies. Application components get auto registered with app chassis, this way we can get a
+    list of all application components at runtime by accessing `chassis.components` property. This can be used for
+    diagnostics, monitoring, etc.
+
+    Note:
+     It is app components that own other components (directors). Directors (owners) should know how to deterministically
+     dispose their owned components, but the chassis does not dispose them, it is the responsibility of the owners.
+    """
+
+    @property
+    def sid(self) -> int:
+        """Returns a numeric sys id of this component, which is unique within the application instance. It is assigned
+        sequentially in order of component creation. Among other things it is used for component listing in tools
+        """
+        ...
+
+    @property
+    def chassis(self) -> AppChassis:
+        """Returns the application chassis instance associated with this component"""
+        ...
+
+    @property
+    def director(self) -> Optional["IAppComponent"]:
+        """
+        Returns the director component which owns/directs this component, or None if this component is not owned by
+        any other component. Directors typically own the lifetime of their components, meaning that when a director
+        gets disposed, it disposes all of its components as well. This is a common pattern in component-based
+        architectures.
+        """
+        ...
+
+
+
 class AppComponent(DisposableObject):
     """
     Base class for application components which are aware of the chassis and can access its properties and dependencies.
@@ -652,6 +698,167 @@ class AppComponent(DisposableObject):
         """
         return self._director
 
+
+# ##########################################################
+# ############       DAEMONS     ###########################
+# ##########################################################
+
+class DaemonStatus(Enum):
+    STOPPED = 0
+    STARTING = 1
+    RUNNING = 2
+    STOPPING = 3
+
+
+@runtime_checkable
+class IDaemon(IAppComponent, Protocol):
+    """
+    Protocol defining the contract for startable/stoppable services.
+    This protocol is a marker one which is used for "read-only" access to daemons such as showing their
+    registries/names and statuses in the management tools
+    """
+    @property
+    def daemon_status(self) -> DaemonStatus:
+        ...
+
+    @property
+    def is_daemon_active(self) -> bool:
+        """Convenience property to check if the daemon is currently active: Starting or Running"""
+        ...
+
+
+@runtime_checkable
+class IDaemonControl(IDaemon, Protocol):
+    """
+    Protocol defining the contract for startable/stoppable services/daemons.
+    Notice the purposeful avoidance of async methods in this protocol as the implementation may be based
+    on threading, multiprocessing, or even external processes, and the control methods are designed to be non-blocking.
+    """
+
+    def daemon_start(self) -> None:
+        """
+        Non blocking method to start the daemon.
+        The actual start process may be asynchronous and may involve multiple steps.
+        The method should return immediately after initiating the start process, allowing the caller to continue
+        without waiting for the daemon to be fully started.
+        Check the `daemon_status` property to monitor the progress of the start process.
+
+        If the daemon is not stopped at the time of calling this method, it does nothing.
+        """
+        ...
+
+    def daemon_signal_stop(self) -> None:
+        """
+        Non blocking method to signal the daemon to stop.
+        The actual stop process may be asynchronous and may involve multiple steps.
+        The method should return immediately after initiating the stop process, allowing the caller to continue
+        without waiting for the daemon to be fully stopped.
+        Check the `daemon_status` property to monitor the progress of the stop process.
+
+        If the daemon is not running at the time of calling this method, it does nothing.
+        """
+        ...
+
+    def daemon_wait_for_stop(self, timeout_sec: float = 0) -> bool:
+        """
+        Blocking method to wait for the daemon to stop.
+        This method should block until the daemon has fully stopped or until the specified timeout has elapsed.
+
+        :param timeout_sec: Maximum time to wait for the daemon to stop, in seconds. If 0, waits indefinitely.
+        :return: True if the daemon stopped successfully within the timeout, False if the timeout was reached.
+        """
+        ...
+
+
+class Daemon(AppComponent, IDaemonControl):
+    """
+    Base class for daemons, providing a default implementation of the IDaemonControl protocol.
+    This class can be extended to create specific daemons with custom start/stop logic.
+    """
+
+    def __init__(self, chassis: AppChassis, director: AppComponent):
+        super().__init__(chassis, director)
+        self._status = DaemonStatus.STOPPED
+
+    @override
+    def _dispose(self) -> None:
+        self.daemon_wait_for_stop()
+        super().dispose()
+
+    @property
+    def daemon_status(self) -> DaemonStatus:
+        return self._status
+
+    @property
+    def is_daemon_active(self) -> bool:
+        """Convenience property to check if the daemon is currently active: Starting or Running"""
+        return self._status == DaemonStatus.RUNNING or self._status == DaemonStatus.STARTING # or is faster than in
+
+    def daemon_start(self) -> None:
+        if self._status != DaemonStatus.STOPPED: return
+
+        self._status = DaemonStatus.STARTING
+        try:
+            self._do_start()
+            self._status = DaemonStatus.RUNNING
+        except Exception as e:
+            self._status = DaemonStatus.STOPPED
+            raise e
+
+
+    def daemon_signal_stop(self) -> None:
+        if self._status != DaemonStatus.RUNNING: return
+        self._status = DaemonStatus.STOPPING
+        self._do_signal_stop()
+
+
+    def daemon_wait_for_stop(self, timeout_sec: float = 0) -> bool:
+        self.daemon_signal_stop()
+        if timeout_sec < 0 : timeout_sec = 0
+
+        if self._status == DaemonStatus.STOPPED:
+            return True
+
+        return self._do_wait_for_stop(timeout_sec)
+
+
+    @abstractmethod
+    def _do_start(self) -> None:
+        """
+        Abstract method to be implemented by subclasses to define the actual start logic of the daemon.
+        This method is called by `daemon_start` and should contain the logic to initiate the daemon's operation.
+        """
+        pass
+
+    @abstractmethod
+    def _do_signal_stop(self) -> None:
+        """
+        Abstract method to be implemented by subclasses to define the actual stop initiation logic of the daemon.
+        This method is called by `daemon_signal_stop` and should contain the logic to initiate the daemon's shutdown process.
+        May not block and should return immediately after signaling the stop process. The actual stop process may be
+        asynchronous
+        """
+        pass
+
+    @abstractmethod
+    def _do_wait_for_stop(self, timeout_sec: float) -> bool:
+        """
+        Abstract method to be implemented by subclasses to define the logic for waiting for the daemon to stop.
+        This method is called by `daemon_wait_for_stop` after signaling the daemon to stop and should contain the logic
+        to block until the daemon has fully stopped or until the specified timeout has elapsed.
+
+        :param timeout_sec: Maximum time to wait for the daemon to stop, in seconds. If 0, waits indefinitely.
+        :return: True if the daemon stopped successfully within the timeout, False if the timeout was reached.
+        """
+        pass
+
+
+
+
+
+# ##########################################################
+# ########        APP GLOBAL BOOTSTRAP          ############
+# ##########################################################
 
 def _atexit_cleanup():
     AppChassis.get_current_instance().dispose()
