@@ -858,7 +858,10 @@ class Daemon(AppComponent, IDaemonControl):
                     raise e
 
             try:
-                return self._do_wait_for_stop(timeout_sec)
+                stopped = self._do_wait_for_stop(timeout_sec)
+                if stopped:
+                    self._status = DaemonStatus.STOPPED
+                return stopped
             except Exception as e:
                 self._log.critical(f"Daemon `{self.__class__.__name__}` failed to wait for stop with error: {e}", exc_info=True)
                 raise e
