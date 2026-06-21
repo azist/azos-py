@@ -8,11 +8,14 @@ Copyright (C) 2018 - 2026 Azist, MIT License
 """
 
 import asyncio
+import time
 import threading
 from abc import abstractmethod
 from typing import override
 
-from azos.chassis import AppChassis, AppComponent, Daemon, DaemonStatus
+from azos.chassis import AppChassis, AppComponent, Daemon
+
+QUANTA_MIN_SEC = 0.02  # minimum spin interval to prevent excessive CPU usage
 
 
 class AsyncDaemon(Daemon):
@@ -69,21 +72,32 @@ class AsyncDaemon(Daemon):
     @override
     def _do_start(self) -> None:
         """Starts the asyncio event loop in a dedicated background thread."""
-        self._stop_event = asyncio.Event()  # reset stop event in case of restart
-        self._loop = asyncio.new_event_loop()
         self._thread = threading.Thread(
             target=self._thread_body,
             daemon=True,
             name=f"AsyncDaemon-{self.__class__.__name__}",
         )
-        self._thread.start()
+        self._thread.start() # do not use run() to avoid blocking the caller thread
+
+        # Let thread start and set up event loop and stop events
+        i = 0
+        while self._stop_event is None:
+            time.sleep(0.100)
+            i+=1
+            if i > 50: # 5 seconds should be more than enough for the thread to start and create the stop event
+                msg = f"{self.__class__.__name__} failed to initialize stop event within expected time"
+                self._log.critical(msg)
+                raise TimeoutError(msg)
+
 
     @override
     def _do_signal_stop(self) -> None:
         """Signals the spin loop to stop by setting the stop event (thread-safe)."""
-        if self._loop is not None:
-            assert self._stop_event is not None
-            self._loop.call_soon_threadsafe(self._stop_event.set)
+        # Capture local for GIL-free access
+        loop = self._loop
+        stop_event = self._stop_event
+        if loop is not None and stop_event is not None:
+            loop.call_soon_threadsafe(stop_event.set)
 
     @override
     def _do_wait_for_stop(self, timeout_sec: float) -> bool:
@@ -99,44 +113,61 @@ class AsyncDaemon(Daemon):
         finally:
           if stopped:
             self._thread = None
-            self._stop_event = None
-            self._loop = None
 
 
-    # ########################
-    # Internal async machinery
-    # ########################
+    # ####################
+    # .pvt async spin loop
+    # ####################
 
     def _thread_body(self) -> None:
         """Entry point for the background thread: runs the asyncio event loop."""
-        assert self._loop is not None
-        assert self._stop_event is not None
         try:
-            asyncio.set_event_loop(self._loop)
-            self._loop.run_until_complete(self._spin_loop())
-        finally:
-            self._loop.close()
+            self._loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(self._loop)  # Must bind IN THE running thread before creating the stop event
+            self._stop_event = asyncio.Event()  # Must be created AFTER the event loop is bound toi executing thread
 
+            # ############## DO THE SPINNING ###############
+            self._loop.run_until_complete(self._spin_loop())
+            # ##############################################
+
+        finally:
+            if self._loop is not None:
+                try:
+                    self._loop.close()
+                except Exception:
+                    pass
+
+                self._loop = None
+                self._stop_event = None
+
+
+    # this executes on _thread_body's event loop thread
+    # can safely access the stop event and loop without locking
     async def _spin_loop(self) -> None:
         """
         Async spin loop: calls `_do_spin()` then waits `spin_interval_sec` before the next spin.
         The inter-spin wait is interrupted immediately when `daemon_signal_stop()` is called.
         """
         assert self._stop_event is not None
-        while not self._stop_event.is_set():
+        while self.is_daemon_active and not self._stop_event.is_set():
             try:
                 await self._do_spin()
             except Exception as ex:
                 self._log.critical(f"_do_spin leaked: {ex}", exc_info=True)
                 self._failure = ex
 
-            if self._stop_event.is_set():
+            if  not self.is_daemon_active or self._stop_event.is_set():
                 break
 
             interval = self.spin_interval_sec
+
+            if interval <= QUANTA_MIN_SEC: # keep in meaningful bounds
+                interval = QUANTA_MIN_SEC
+
             try:
-                await asyncio.wait_for(self._stop_event.wait(), timeout=interval)
-                break  # stop event fired during the wait
+                await asyncio.wait_for(self._stop_event.wait(),
+                                       timeout=interval)
+                break  # stop event fired during the wait, bail out of the loop
             except asyncio.TimeoutError:
-                pass  # normal interval expiry – continue spinning
+                pass  # expected interval expiry – continue spinning
 
