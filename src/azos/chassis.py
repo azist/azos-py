@@ -21,7 +21,6 @@ from typing import (Any, Protocol, Sequence, Type, Dict, List, Optional,
 from pathlib import Path
 from configparser import ConfigParser
 
-from azos.apm.log import LogStrand
 from azos.oop import DisposableObject
 from azos.stock_content import loader
 
@@ -792,6 +791,8 @@ class Daemon(AppComponent, IDaemonControl):
         self._state_lock = threading.Lock()  # Warning: NOT re-entrant!!!
         self._status = DaemonStatus.STOPPED
         self._failure = None
+
+        from azos.apm.log import LogStrand
         self._log = LogStrand(f"Daemon::{self.__class__.__name__}", rel=chassis.instance_id)
 
     @override
