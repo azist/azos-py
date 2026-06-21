@@ -1,12 +1,13 @@
 """
 Uniform application chassis pattern.
 Based on Azos.net implementation but with a more opinionated design and Pythonic approach. It is a singleton object
-which gets initialized at the application entry point (such as `main.py`) and provides global boilerplate for app instance identification,
-logical host name mapping and configuration root. It also provides a `DIContainer` for dependency injection and service location.
+which gets initialized at the application entry point (such as `main.py`) and provides global boilerplate for app instance
+identification, logical host name mapping and configuration root. It also provides a `DIContainer` for dependency
+injection and service location.
 
 Copyright (C) 2018 - 2026 Azist, MIT License
-
 """
+
 import logging
 import os
 import atexit
@@ -843,19 +844,31 @@ class Daemon(AppComponent, IDaemonControl):
 
 
     def daemon_wait_for_stop(self, timeout_sec: float = 0) -> bool:
+        """
+        Blocking method to wait for the daemon to stop.
+        This method blocks until the daemon has fully stopped or until the specified timeout has elapsed.
+        The system calls this method during daemon disposal to ensure that the daemon has stopped before
+        proceeding with the disposal process. Consequently, the Daemon stop happens on application chassis shutdown
+        if the daemon has not been deterministically stopped and finalized by then.
+
+        Note: You should call this method from primary application control thread, such as main thread, to avoid
+        potential deadlocks. If you need asynchronous shutdown, call the `daemon_signal_stop` method and then monitor
+        the `daemon_status` property for the STOPPED status in a non-blocking way. If you have not called the
+        `daemon_signal_stop` method, then this method will signal the daemon to stop and then wait for stop to complete.
+
+
+        :param timeout_sec: Maximum time to wait for the daemon to stop, in seconds. If 0, waits indefinitely.
+        :return: True if the daemon stopped successfully within the timeout, False if the timeout was reached.
+        """
+
+        self.daemon_signal_stop() # Signal stop if not already signaled, this is idempotent and will do nothing
+                                  # if already signaled
+
         if timeout_sec < 0 : timeout_sec = 0
 
         with self._state_lock:
             if self._status == DaemonStatus.STOPPED:
                 return True
-
-            if self._status == DaemonStatus.RUNNING or self._status == DaemonStatus.STARTING:
-                try:
-                    self._status = DaemonStatus.STOPPING
-                    self._do_signal_stop()
-                except Exception as e:
-                    self._log.critical(f"Daemon `{self.__class__.__name__}` failed to signal stop with error: {e}", exc_info=True)
-                    raise e
 
             try:
                 stopped = self._do_wait_for_stop(timeout_sec)
@@ -872,6 +885,8 @@ class Daemon(AppComponent, IDaemonControl):
         """
         Abstract method to be implemented by subclasses to define the actual start logic of the daemon.
         This method is called by `daemon_start` and should contain the logic to initiate the daemon's operation.
+
+        !!!ATTENTION: this method is called under a non-reentrant state lock
         """
         pass
 
@@ -882,6 +897,8 @@ class Daemon(AppComponent, IDaemonControl):
         This method is called by `daemon_signal_stop` and should contain the logic to initiate the daemon's shutdown process.
         May not block and should return immediately after signaling the stop process. The actual stop process may be
         asynchronous
+
+        !!!ATTENTION: this method is called under a non-reentrant state lock
         """
         pass
 
@@ -892,11 +909,12 @@ class Daemon(AppComponent, IDaemonControl):
         This method is called by `daemon_wait_for_stop` after signaling the daemon to stop and should contain the logic
         to block until the daemon has fully stopped or until the specified timeout has elapsed.
 
+        !!!ATTENTION: this method is called under a non-reentrant state lock
+
         :param timeout_sec: Maximum time to wait for the daemon to stop, in seconds. If 0, waits indefinitely.
         :return: True if the daemon stopped successfully within the timeout, False if the timeout was reached.
         """
         pass
-
 
 
 
@@ -909,7 +927,6 @@ def _atexit_cleanup():
     AppChassis.get_current_instance().dispose()
 
 atexit.register(_atexit_cleanup)
-
 
 # Allocate default instance of chassis
 AppChassis(DEFAULT_APP_ID, __file__)

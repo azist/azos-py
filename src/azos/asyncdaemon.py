@@ -100,6 +100,7 @@ class AsyncDaemon(Daemon):
           if stopped:
             self._thread = None
             self._stop_event = None
+            self._loop = None
 
 
     # ########################
@@ -110,12 +111,11 @@ class AsyncDaemon(Daemon):
         """Entry point for the background thread: runs the asyncio event loop."""
         assert self._loop is not None
         assert self._stop_event is not None
-        asyncio.set_event_loop(self._loop)
         try:
+            asyncio.set_event_loop(self._loop)
             self._loop.run_until_complete(self._spin_loop())
         finally:
             self._loop.close()
-            self._loop = None
 
     async def _spin_loop(self) -> None:
         """
