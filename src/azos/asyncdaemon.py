@@ -72,7 +72,7 @@ class AsyncDaemon(Daemon):
         self._stop_event = asyncio.Event()  # reset stop event in case of restart
         self._loop = asyncio.new_event_loop()
         self._thread = threading.Thread(
-            target=self._run_loop,
+            target=self._thread_body,
             daemon=True,
             name=f"AsyncDaemon-{self.__class__.__name__}",
         )
@@ -99,7 +99,6 @@ class AsyncDaemon(Daemon):
         finally:
           if stopped:
             self._thread = None
-            self._loop = None
             self._stop_event = None
 
 
@@ -107,7 +106,7 @@ class AsyncDaemon(Daemon):
     # Internal async machinery
     # ########################
 
-    def _run_loop(self) -> None:
+    def _thread_body(self) -> None:
         """Entry point for the background thread: runs the asyncio event loop."""
         assert self._loop is not None
         assert self._stop_event is not None
@@ -117,7 +116,6 @@ class AsyncDaemon(Daemon):
         finally:
             self._loop.close()
             self._loop = None
-            self._status = DaemonStatus.STOPPED
 
     async def _spin_loop(self) -> None:
         """
