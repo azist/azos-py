@@ -30,7 +30,6 @@ class AsyncDaemon(Daemon):
 
     def __init__(self, chassis: AppChassis, director: AppComponent) -> None:
         super().__init__(chassis, director)
-
         self._loop: asyncio.AbstractEventLoop | None = None
         self._thread: threading.Thread | None = None
         self._stop_event: asyncio.Event | None = None
@@ -91,13 +90,17 @@ class AsyncDaemon(Daemon):
         """Blocks until the background thread exits or the timeout elapses."""
         if self._thread is None:
             return True
+
+        stopped = False
         try:
           self._thread.join(timeout=timeout_sec if timeout_sec > 0 else None)
-          return not self._thread.is_alive()
+          stopped = not self._thread.is_alive()
+          return stopped
         finally:
-          self._thread = None
-          self._loop = None
-          self._stop_event = None
+          if stopped:
+            self._thread = None
+            self._loop = None
+            self._stop_event = None
 
 
     # ########################
