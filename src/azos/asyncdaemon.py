@@ -30,9 +30,10 @@ class AsyncDaemon(Daemon):
 
     def __init__(self, chassis: AppChassis, director: AppComponent) -> None:
         super().__init__(chassis, director)
+
         self._loop: asyncio.AbstractEventLoop | None = None
         self._thread: threading.Thread | None = None
-        self._stop_event: asyncio.Event = asyncio.Event()
+        self._stop_event: asyncio.Event | None = None
 
     # #############################
     # Overridable interval hook
@@ -57,7 +58,8 @@ class AsyncDaemon(Daemon):
         """
         Abstract async coroutine called periodically by the daemon's spin loop.
         Implement to define the background work performed on each tick.
-        Unhandled exceptions propagate and will terminate the daemon's loop.
+        Unhandled exceptions propagate and will be logged and set failure by the spin loop, but do not stop
+        the loop from continuing to run.
         """
         pass
 
@@ -68,7 +70,7 @@ class AsyncDaemon(Daemon):
     @override
     def _do_start(self) -> None:
         """Starts the asyncio event loop in a dedicated background thread."""
-        self._stop_event = asyncio.Event()
+        self._stop_event = asyncio.Event()  # reset stop event in case of restart
         self._loop = asyncio.new_event_loop()
         self._thread = threading.Thread(
             target=self._run_loop,
@@ -81,6 +83,7 @@ class AsyncDaemon(Daemon):
     def _do_signal_stop(self) -> None:
         """Signals the spin loop to stop by setting the stop event (thread-safe)."""
         if self._loop is not None:
+            assert self._stop_event is not None
             self._loop.call_soon_threadsafe(self._stop_event.set)
 
     @override
@@ -88,8 +91,13 @@ class AsyncDaemon(Daemon):
         """Blocks until the background thread exits or the timeout elapses."""
         if self._thread is None:
             return True
-        self._thread.join(timeout=timeout_sec if timeout_sec > 0 else None)
-        return not self._thread.is_alive()
+        try:
+          self._thread.join(timeout=timeout_sec if timeout_sec > 0 else None)
+          return not self._thread.is_alive()
+        finally:
+          self._thread = None
+          self._loop = None
+          self._stop_event = None
 
 
     # ########################
@@ -99,6 +107,7 @@ class AsyncDaemon(Daemon):
     def _run_loop(self) -> None:
         """Entry point for the background thread: runs the asyncio event loop."""
         assert self._loop is not None
+        assert self._stop_event is not None
         asyncio.set_event_loop(self._loop)
         try:
             self._loop.run_until_complete(self._spin_loop())
@@ -112,8 +121,13 @@ class AsyncDaemon(Daemon):
         Async spin loop: calls `_do_spin()` then waits `spin_interval_sec` before the next spin.
         The inter-spin wait is interrupted immediately when `daemon_signal_stop()` is called.
         """
+        assert self._stop_event is not None
         while not self._stop_event.is_set():
-            await self._do_spin()
+            try:
+                await self._do_spin()
+            except Exception as ex:
+                self._log.critical(f"_do_spin leaked: {ex}", exc_info=True)
+                self._failure = ex
 
             if self._stop_event.is_set():
                 break

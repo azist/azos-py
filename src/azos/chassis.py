@@ -11,6 +11,7 @@ import logging
 import os
 import atexit
 import re
+import threading
 import uuid
 import platform
 from abc import abstractmethod
@@ -20,6 +21,7 @@ from typing import (Any, Protocol, Sequence, Type, Dict, List, Optional,
 from pathlib import Path
 from configparser import ConfigParser
 
+from azos.apm.log import LogStrand
 from azos.oop import DisposableObject
 from azos.stock_content import loader
 
@@ -726,6 +728,11 @@ class IDaemon(IAppComponent, Protocol):
         """Convenience property to check if the daemon is currently active: Starting or Running"""
         ...
 
+    @property
+    def daemon_failure(self) -> object | None:
+        """Captures the last failure if any"""
+        ...
+
 
 @runtime_checkable
 class IDaemonControl(IDaemon, Protocol):
@@ -770,6 +777,10 @@ class IDaemonControl(IDaemon, Protocol):
         ...
 
 
+DAEMON_STOP_WAIT_TIMEOUT_SEC_DEFAULT = 5.78
+"""Default timeout for waiting for daemons to stop during chassis disposal. This is a safeguard to prevent hanging"""
+
+
 class Daemon(AppComponent, IDaemonControl):
     """
     Base class for daemons, providing a default implementation of the IDaemonControl protocol.
@@ -778,12 +789,17 @@ class Daemon(AppComponent, IDaemonControl):
 
     def __init__(self, chassis: AppChassis, director: AppComponent):
         super().__init__(chassis, director)
+        self._state_lock = threading.Lock()  # Warning: NOT re-entrant!!!
         self._status = DaemonStatus.STOPPED
+        self._failure = None
+        self._log = LogStrand(f"Daemon::{self.__class__.__name__}", rel=chassis.instance_id)
 
     @override
     def _dispose(self) -> None:
-        self.daemon_wait_for_stop()
-        super().dispose()
+        stopped = self.daemon_wait_for_stop(timeout_sec=DAEMON_STOP_WAIT_TIMEOUT_SEC_DEFAULT)
+        if not stopped:
+            self._log.critical(f"Daemon `{self.__class__.__name__}` did not stop within the timeout during disposal")
+        super()._dispose()
 
     @property
     def daemon_status(self) -> DaemonStatus:
@@ -794,32 +810,57 @@ class Daemon(AppComponent, IDaemonControl):
         """Convenience property to check if the daemon is currently active: Starting or Running"""
         return self._status == DaemonStatus.RUNNING or self._status == DaemonStatus.STARTING # or is faster than in
 
-    def daemon_start(self) -> None:
-        if self._status != DaemonStatus.STOPPED: return
+    @property
+    def daemon_failure(self) -> object | None:
+        """Captures the last failure if any"""
+        return self._failure
 
-        self._status = DaemonStatus.STARTING
-        try:
-            self._do_start()
-            self._status = DaemonStatus.RUNNING
-        except Exception as e:
-            self._status = DaemonStatus.STOPPED
-            raise e
+    def daemon_start(self) -> None:
+        with self._state_lock:
+            if self._status != DaemonStatus.STOPPED: return
+
+            self._status = DaemonStatus.STARTING
+            try:
+                self._do_start()
+                self._status = DaemonStatus.RUNNING
+            except Exception as e:
+                self._status = DaemonStatus.STOPPED
+                self._failure = e
+                self._log.critical(f"Daemon `{self.__class__.__name__}` failed to start with error: {e}", exc_info=True)
+                raise e
 
 
     def daemon_signal_stop(self) -> None:
-        if self._status != DaemonStatus.RUNNING: return
-        self._status = DaemonStatus.STOPPING
-        self._do_signal_stop()
+        with self._state_lock:
+            if self._status != DaemonStatus.RUNNING and self._status != DaemonStatus.STARTING: return
+            try:
+                self._status = DaemonStatus.STOPPING
+                self._do_signal_stop()
+            except Exception as e:
+                self._log.critical(f"Daemon `{self.__class__.__name__}` failed to signal stop with error: {e}", exc_info=True)
+                raise e
 
 
     def daemon_wait_for_stop(self, timeout_sec: float = 0) -> bool:
-        self.daemon_signal_stop()
         if timeout_sec < 0 : timeout_sec = 0
 
-        if self._status == DaemonStatus.STOPPED:
-            return True
+        with self._state_lock:
+            if self._status == DaemonStatus.STOPPED:
+                return True
 
-        return self._do_wait_for_stop(timeout_sec)
+            if self._status == DaemonStatus.RUNNING or self._status == DaemonStatus.STARTING:
+                try:
+                    self._status = DaemonStatus.STOPPING
+                    self._do_signal_stop()
+                except Exception as e:
+                    self._log.critical(f"Daemon `{self.__class__.__name__}` failed to signal stop with error: {e}", exc_info=True)
+                    raise e
+
+            try:
+                return self._do_wait_for_stop(timeout_sec)
+            except Exception as e:
+                self._log.critical(f"Daemon `{self.__class__.__name__}` failed to wait for stop with error: {e}", exc_info=True)
+                raise e
 
 
     @abstractmethod
