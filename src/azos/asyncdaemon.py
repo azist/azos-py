@@ -29,6 +29,11 @@ class AsyncDaemon(Daemon):
     interfere with any other event loop in the application.  Stop signaling via `IDaemonControl`
     is fully supported and interrupts the inter-spin wait immediately.
 
+    By design daemon control methods should only be called by primary/main application thread and not from within
+    daemon's own execution context to avoid potential deadlocks. If you need to signal a daemon to stop from within
+    its own execution context, consider using an internal event or flag that the daemon checks periodically to determine
+    when to stop, rather than calling `daemon_signal_stop` directly from within the daemon's execution
+
     Notes:
      Why do we not have a Thread-based daemon without async io - foe simplicity as 98% of use cases
      are calling external async services (e.g. httpx) and we want to avoid the complexity of managing a thread pool

@@ -740,6 +740,11 @@ class IDaemonControl(IDaemon, Protocol):
     Protocol defining the contract for startable/stoppable services/daemons.
     Notice the purposeful avoidance of async methods in this protocol as the implementation may be based
     on threading, multiprocessing, or even external processes, and the control methods are designed to be non-blocking.
+
+    By design daemon control methods should only be called by primary/main application thread and not from within
+    daemon's own execution context to avoid potential deadlocks. If you need to signal a daemon to stop from within
+    its own execution context, consider using an internal event or flag that the daemon checks periodically to determine
+    when to stop, rather than calling `daemon_signal_stop` directly from within the daemon's execution
     """
 
     def daemon_start(self) -> None:
@@ -751,6 +756,7 @@ class IDaemonControl(IDaemon, Protocol):
         Check the `daemon_status` property to monitor the progress of the start process.
 
         If the daemon is not stopped at the time of calling this method, it does nothing.
+        Note, that this method must be called from control thread, such as main thread.
         """
         ...
 
@@ -763,6 +769,7 @@ class IDaemonControl(IDaemon, Protocol):
         Check the `daemon_status` property to monitor the progress of the stop process.
 
         If the daemon is not running at the time of calling this method, it does nothing.
+        Note, that this method must be called from control thread, such as main thread.
         """
         ...
 
@@ -770,6 +777,8 @@ class IDaemonControl(IDaemon, Protocol):
         """
         Blocking method to wait for the daemon to stop.
         This method should block until the daemon has fully stopped or until the specified timeout has elapsed.
+
+        Note, that this method must be called from control thread, such as main thread.
 
         :param timeout_sec: Maximum time to wait for the daemon to stop, in seconds. If 0, waits indefinitely.
         :return: True if the daemon stopped successfully within the timeout, False if the timeout was reached.
@@ -785,6 +794,11 @@ class Daemon(AppComponent, IDaemonControl):
     """
     Base class for daemons, providing a default implementation of the IDaemonControl protocol.
     This class can be extended to create specific daemons with custom start/stop logic.
+
+    By design daemon control methods should only be called by primary/main application thread and not from within
+    daemon's own execution context to avoid potential deadlocks. If you need to signal a daemon to stop from within
+    its own execution context, consider using an internal event or flag that the daemon checks periodically to determine
+    when to stop, rather than calling `daemon_signal_stop` directly from within the daemon's execution
     """
 
     def __init__(self, chassis: AppChassis, director: AppComponent):
