@@ -100,11 +100,10 @@ class AsyncDaemon(Daemon):
         WARNING: DO NOT call this protected method from outside the `_do_spin()` context, as it is not thread-safe and may
         cause race conditions
         """
-        assert self.is_daemon_active, "Daemon is not active"
-
-        self._status = DaemonStatus.STOPPING
-        if self._stop_event is not None:
-            self._stop_event.set()
+        if self.is_daemon_active:
+            self._status = DaemonStatus.STOPPING
+            if self._stop_event is not None:
+                self._stop_event.set()
 
     # #####################################
     # IDaemonControl protected _do_** impl
@@ -119,17 +118,6 @@ class AsyncDaemon(Daemon):
             name=f"AsyncDaemon-{self.__class__.__name__}",
         )
         self._thread.start() # do not use run() to avoid blocking the caller thread
-
-        # Let thread start and set up event loop and stop events
-        i = 0
-        while self._stop_event is None:
-            time.sleep(0.100)
-            i+=1
-            if i > 50: # 5 seconds should be more than enough for the thread to start and create the stop event
-                msg = f"{self.__class__.__name__} failed to initialize stop event within expected time"
-                self._log.critical(msg)
-                raise TimeoutError(msg)
-
 
     @override
     def _do_signal_stop(self) -> None:
