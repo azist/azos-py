@@ -10,10 +10,11 @@ Copyright (C) 2018 - 2026 Azist, MIT License
 import asyncio
 import time
 import threading
+
 from abc import abstractmethod
 from typing import override
 
-from azos.chassis import AppChassis, AppComponent, Daemon
+from azos.chassis import AppChassis, AppComponent, Daemon, DaemonStatus
 
 QUANTA_MIN_SEC = 0.02  # minimum spin interval to prevent excessive CPU usage
 
@@ -27,6 +28,21 @@ class AsyncDaemon(Daemon):
     The daemon runs its own asyncio event loop in a dedicated background thread so it does not
     interfere with any other event loop in the application.  Stop signaling via `IDaemonControl`
     is fully supported and interrupts the inter-spin wait immediately.
+
+    Notes:
+     Why do we not have a Thread-based daemon without async io - foe simplicity as 98% of use cases
+     are calling external async services (e.g. httpx) and we want to avoid the complexity of managing a thread pool
+     and synchronization primitives for a non-async daemon.
+
+     If you need to run a non-async background task (such as legacy data access code), you can still use `AsyncDaemon`
+     and simply run your synchronous  code in an executor using `loop.run_in_executor()`:
+     ```python
+     async def _do_spin(self) -> None:
+         await self._loop.run_in_executor(None, self._legacy_sync_task)
+     ```
+     This allows you to leverage the existing `AsyncDaemon` infrastructure while still running blocking code without
+        blocking the event loop.
+
     """
 
     DEFAULT_SPIN_INTERVAL_SEC: float = 5.0
@@ -62,8 +78,33 @@ class AsyncDaemon(Daemon):
         Implement to define the background work performed on each tick.
         Unhandled exceptions propagate and will be logged and set failure by the spin loop, but do not stop
         the loop from continuing to run.
+
+        WARNING: Never call `daemon_*` methods from within `_do_spin()`, as it may cause deadlocks or undefined behavior.
+        These methods are for external daemon control only and are not thread-safe when called from the spin loop context.
+        If you need to signal the daemon to stop from within `_do_spin()`, use the protected `_abort_daemon_from_spin()`
+          method instead, which is designed for this purpose and is safe to call from within the spin loop.
+
+        Normally you should never abort a running Daemon from within its own spin loop, but this can be useful in certain
+        scenarios where you want to stop the daemon immediately based on some condition detected during the spin,
+        without waiting for an external control.
         """
         pass
+
+
+    def _abort_daemon_from_spin(self) -> None:
+        """
+        Utility method that can be called from within `_do_spin()` to signal the daemon to stop immediately.
+        This is a thread-safe operation that sets the stop event, causing the spin loop to exit after the current
+        spin iteration completes.
+
+        WARNING: DO NOT call this protected method from outside the `_do_spin()` context, as it is not thread-safe and may
+        cause race conditions
+        """
+        assert self.is_daemon_active, "Daemon is not active"
+
+        self._status = DaemonStatus.STOPPING
+        if self._stop_event is not None:
+            self._stop_event.set()
 
     # #####################################
     # IDaemonControl protected _do_** impl
