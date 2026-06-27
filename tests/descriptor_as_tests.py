@@ -125,9 +125,9 @@ class TestAsInt:
         assert desc.as_int("i_str_bad") is None
         assert desc.as_int("i_str_bad", default=-1) == -1
 
-    def test_float_value_returns_default(self, desc):
-        """Float stored natively is not an int; as_int returns default."""
-        assert desc.as_int("f_native") is None
+    def test_float_value_returns_rounded(self, desc):
+        """Float stored natively is rounded to the nearest integer."""
+        assert desc.as_int("f_native")  == 3
 
     def test_missing_path_returns_default(self, desc):
         """Completely absent key returns the default."""

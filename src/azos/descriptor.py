@@ -374,6 +374,8 @@ class Descriptor:
             return default
         if isinstance(value, int):
             return value
+        if isinstance(value, float):
+            return int(value)
         if isinstance(value, str):
             if not verbatim:
                 # value = eval(value)  EVALUATE string
@@ -427,7 +429,7 @@ class Descriptor:
             return default
         if isinstance(value, bool):
             return value
-        if isinstance(value, int):
+        if isinstance(value, (int, float)):
             return value != 0
         if isinstance(value, str):
             if not verbatim:
