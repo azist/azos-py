@@ -1,5 +1,5 @@
 """
-Tests for Descriptor.as_int / as_float / as_bool / as_str / as_datetime
+Tests for Descriptor.as_int / as_float / as_bool / as_str / as_datetime / as_enum
 
 Each section covers:
   - native-typed values stored directly in the dict
@@ -11,9 +11,16 @@ Each section covers:
 
 import pytest
 from datetime import datetime, timezone, timedelta
+from enum import Enum
 
 from azos.chassis import ConfigError
 from azos.descriptor import Descriptor
+
+
+class Color(Enum):
+    RED = 1
+    GREEN = 2
+    BLUE = 3
 
 
 # ---------------------------------------------------------------------------
@@ -82,6 +89,16 @@ DATA = {
     "dt_us_hhmm_am":  "01/15/2024 06:00 AM",
     "dt_str_bad":     "not-a-date",
     "dt_var":         "$(dt_iso_date)",  # expands to "2024-01-15"
+
+    # enums
+    "e_native": Color.GREEN,
+    "e_int": 3,
+    "e_str_int": "1",
+    "e_str_name": "red",
+    "e_str_name_case": "bLuE",
+    "e_str_bad": "yellow",
+    "e_int_bad": 99,
+    "e_var": "$(e_str_name)",
 }
 
 
@@ -397,6 +414,52 @@ class TestAsDatetime:
         d = Descriptor({"when": "$(raw_date)", "raw_date": "06/12/2026"})
         result = d.as_datetime("when")
         assert result == datetime(2026, 6, 12)
+
+
+# ===========================================================================
+# as_enum
+# ===========================================================================
+
+class TestAsEnum:
+    def test_native_enum(self, desc):
+        """Enum stored directly is returned unchanged."""
+        assert desc.as_enum("e_native", Color) == Color.GREEN
+
+    def test_int_value(self, desc):
+        """Integer matching enum value is coerced."""
+        assert desc.as_enum("e_int", Color) == Color.BLUE
+
+    def test_str_int_value(self, desc):
+        """String of integer matching enum value is coerced."""
+        assert desc.as_enum("e_str_int", Color) == Color.RED
+
+    def test_str_name(self, desc):
+        """String matching enum name case-insensitively is coerced."""
+        assert desc.as_enum("e_str_name", Color) == Color.RED
+        assert desc.as_enum("e_str_name_case", Color) == Color.BLUE
+
+    def test_bad_str_returns_default(self, desc):
+        """Unrecognized string returns default."""
+        assert desc.as_enum("e_str_bad", Color) is None
+        assert desc.as_enum("e_str_bad", Color, default=Color.GREEN) == Color.GREEN
+
+    def test_bad_int_returns_default(self, desc):
+        """Unrecognized integer returns default."""
+        assert desc.as_enum("e_int_bad", Color) is None
+        assert desc.as_enum("e_int_bad", Color, default=Color.RED) == Color.RED
+
+    def test_missing_path_returns_default(self, desc):
+        """Absent key returns default."""
+        assert desc.as_enum("no_such_key", Color) is None
+        assert desc.as_enum("no_such_key", Color, default=Color.BLUE) == Color.BLUE
+
+    def test_var_expression_expanded(self, desc):
+        """$(e_str_name) resolves to 'red' and parses to Color.RED."""
+        assert desc.as_enum("e_var", Color) == Color.RED
+
+    def test_verbatim_skips_expansion(self, desc):
+        """verbatim=True: '$(e_str_name)' is NOT expanded → parse fails → default."""
+        assert desc.as_enum("e_var", Color, verbatim=True) is None
 
 
 # ===========================================================================

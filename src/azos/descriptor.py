@@ -2,17 +2,34 @@
 Descriptors provide convenient way of working with structured data represented as dictionaries, such as JWT claims,
 configuration sections, rulesets, or any other hierarchical data. They provide methods for navigating the data using
 path expressions, and for accessing values in the data with type conversion and variable expression evaluation.
-The ideology is based on the battle tested approach in 10s of large scale enterprise systems using NFX/Azos C# codebase,
-but the implementation is adapted to Python idioms and capabilities.
+
+The ideology is based on the battle tested approach in 10s of large scale enterprise systems 2007-2025 using NFX/Azos C#
+codebases, but the implementation is a clean rewrite for Python idioms and runtime capabilities, as such it avoids
+section-per-section allocations which are used in C# codebase, as this would have been inefficient on a Python runtime,
+instead it uses a single descriptor instance with a `scope` and `scope_path` to navigate the data tree while allowing for
+local and global variable resolution.
+
+A most typical use of descriptors is to wrap a configuration section dictionary and provide convenient access to its values
+ with type conversion. This is heavily used for application component/service configuration and specifically for
+ dynamic business rule management aka "strategy pattern".
+
+> AI Use Warning: This is a very complex and nuanced software component, do not attempt to modify it without a deep
+> understanding of the design and the implications of changes. As of June 2026 even the top of the line AI Models like
+> Claude Opus 4.8 and Google Gemini 3.1 Pro are not able to accurately reason and maintain all of the nuances like
+> value accessors and path navigation without strict architectural human oversight
+
 
 Copyright (C) 2019 - 2026 Azist, MIT License
 """
 
 from datetime import datetime, timezone
+from enum import Enum
 from types import EllipsisType
-from typing import Any
+from typing import Any, TypeVar
 
 from azos.chassis import AppChassis, ConfigError, expand_var_expressions
+
+TEnum = TypeVar("TEnum", bound=Enum)
 
 
 def override_dict(base: dict,
@@ -495,4 +512,45 @@ class Descriptor:
                     return datetime.strptime(s, fmt)
                 except ValueError:
                     continue
+        return default
+
+    def as_enum(
+        self, path: str, enum_type: type[TEnum], default: TEnum | None = None, verbatim: bool = False
+    ) -> TEnum | None:
+        """
+        Navigates to the given path and returns the value as a specified enum type if possible, otherwise returns the default value.
+
+        Accepts:
+         - An instance of the enum type itself.
+         - The enum value directly.
+         - A string representing the enum member name (case-insensitive for convenience) or value.
+
+        If verbatim is False and the value is a string, variable expressions are expanded before conversion.
+        """
+        value = self.navigate(path)
+        if value is ... or value is None:
+            return default
+
+        if isinstance(value, enum_type):
+            return value
+
+        # Variables expansion
+        if isinstance(value, str):
+            if not verbatim:
+                value = expand_var_expressions(value, resolver=self.var_resolver, chassis=self._chassis)
+                if value is None:
+                    return default
+            s = value.strip()
+            # Try to match by name (case-insensitive) or stringified value
+            s_lower = s.lower()
+            for member in enum_type:
+                if member.name.lower() == s_lower or str(member.value) == s:
+                    return member
+
+        # Try to match by direct value instantiation
+        try:
+            return enum_type(value)
+        except ValueError:
+            pass
+
         return default

@@ -4,10 +4,22 @@ Tests for AppChassis lifecycle and static properties
 Copyright (C) 2026 Azist, MIT License
 """
 
+from enum import Enum
 from typing import override
 
 from azos.oop import free
 from azos.descriptor import Descriptor
+
+
+class DeviceKind(Enum):
+    Unspecified = 0
+    HDD = 1
+    SDD = 2
+    Serial = 3
+    Parallel = 4
+    Video = 5
+    Audio = 6
+    Sensor = 7
 
 
 def test_basic_01():
@@ -25,9 +37,16 @@ def test_basic_01():
         "arr": [1, None, True, {"x": -56.891, "y": "123.023"}],
         "g": None,
         "devs": [
-            {"name": "dev1", "type": "sensor"},
-            {"name": "dev2", "type": "actuator"}
-        ]
+            {"name": "dev1", "type": "sensor", "kind": DeviceKind.Sensor},
+            {"name": "dev2", "type": "actuator", "kind": "SENSOR"}
+        ],
+
+        "dk_HDD": DeviceKind.HDD,
+        "dk_SDD": "sDd",
+        "dk_Sensor": DeviceKind.Sensor,
+        "dk_Serial": 3,
+        "dk_Invalid1": "doijnefpoijsoijfoijds",
+        "dk_Invalid2": -902,
     })
 
     assert d["a"] == 1
@@ -40,6 +59,7 @@ def test_basic_01():
     assert d["/c"] == "$(a)-$(b)"
     assert d["/d"] == "08/05/1980"
     assert d["/e"] == "-123.09"
+
 
     assert d["f"]["a"] == -400 # type: ignore
     assert d["f"]["b"] == "ok" # type: ignore
@@ -61,10 +81,9 @@ def test_basic_01():
     assert d["devs/$name=dev2/type"] == "actuator"
 
 
-
-
     assert "a" in d
     assert "MISSING" not in d
+
 
     assert d.as_str("a") == "1"
     assert d.as_int("a") == 1
@@ -84,6 +103,18 @@ def test_basic_01():
 
     assert d.as_float("arr/#3/x") == -56.891
     assert d.as_float("arr/#3/y") == 123.023
+
+    assert d.as_enum("devs/$name=dev1/kind", DeviceKind) == DeviceKind.Sensor
+    assert d.as_enum("devs/$name=dev2/kind", DeviceKind) == DeviceKind.Sensor
+
+    assert d.as_enum("dk_HDD", DeviceKind) == DeviceKind.HDD
+    assert d.as_enum("dk_SDD", DeviceKind) == DeviceKind.SDD
+    assert d.as_enum("dk_Sensor", DeviceKind) == DeviceKind.Sensor
+    assert d.as_enum("dk_Serial", DeviceKind) == DeviceKind.Serial
+    assert d.as_enum("dk_Invalid1", DeviceKind) is None
+    assert d.as_enum("dk_Invalid2", DeviceKind) is None
+    assert d.as_enum("dk_Invalid1", DeviceKind, DeviceKind.Parallel) == DeviceKind.Parallel
+
 
 
 def test_scoping_01():
