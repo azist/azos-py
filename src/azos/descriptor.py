@@ -182,7 +182,10 @@ class Descriptor:
         navigated value (including None) up to the point that was navigated in partial navigation
 
         Path segments are separated by "/":
-          - Plain name: dictionary key lookup, e.g. "a/b/c"
+          - Absolute path: starts with "/", navigates from the root of the scope descriptor, e.g. "/root/section/key"
+          - Plain name: dictionary key lookup, e.g. "a/b/c", if no leading slash then the navigation starts from the
+            current descriptor's data level, e.g. "section/key" will look for "section" in the current descriptor's data
+            and then "key" in that section
           - "#N":       index into a list, e.g. "a/#3"
           - "$k=v":     find the first item in a list whose attribute/key "k" equals "v", e.g. "a/$id=123"
         """
@@ -190,6 +193,12 @@ class Descriptor:
             return True, self._data
 
         node: Any = self._data
+
+        if path.startswith("/"):
+            # Absolute path navigation from the root scope of the descriptor
+            node = self._scope.data
+            path = path[1:]
+
         segments: list[str] = path.split("/")
 
         for seg in segments:
@@ -324,7 +333,7 @@ class Descriptor:
         Resolves a variable name to its value for the purpose of evaluating variable expressions in descriptor values.
         Returns a tuple of (found, value), return (True,..) to stop expr eval and use the value
         """
-        got = self._scope.navigate(var_name) # this would conditionally throw for required paths/values
+        got = self.navigate(var_name) # this would conditionally throw for required paths/values
         if got is ...:
             return False, ""  # variable not found, return False to continue expression evaluation
 
