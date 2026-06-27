@@ -182,7 +182,10 @@ class Descriptor:
         navigated value (including None) up to the point that was navigated in partial navigation
 
         Path segments are separated by "/":
-          - Plain name: dictionary key lookup, e.g. "a/b/c"
+          - Absolute path: starts with "/", navigates from the root of the scope descriptor, e.g. "/root/section/key"
+          - Plain name: dictionary key lookup, e.g. "a/b/c", if no leading slash then the navigation starts from the
+            current descriptor's data level, e.g. "section/key" will look for "section" in the current descriptor's data
+            and then "key" in that section
           - "#N":       index into a list, e.g. "a/#3"
           - "$k=v":     find the first item in a list whose attribute/key "k" equals "v", e.g. "a/$id=123"
         """
