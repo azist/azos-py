@@ -150,10 +150,14 @@ def test_scoping_01():
     # Create configuration vector for a child section "log" and "db" with the root descriptor as the scoping context
     log = Descriptor(root.data["log"], scope=root, scope_path="log")
     db = Descriptor(root.data["db"], scope=root, scope_path="db")
+    db2 = root.as_descriptor("db", Descriptor)
 
     # Notice how we reference our config attributes right of the section
     assert log.as_str("file") == "/opt/tezt01/logs/tezt01-regular.log"
     assert db.as_str("user") == "tezt01_user"
     assert db.as_str("file") == "/opt/tezt01/data/tezt01-data.chemistry.db"
+
+    assert isinstance(db2, Descriptor)
+    assert db2.as_str("file") == "/opt/tezt01/data/tezt01-data.chemistry.db"
 
     assert log.as_str("!min-level") == "info"

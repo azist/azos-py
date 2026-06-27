@@ -550,8 +550,10 @@ class TestDunderMethods:
     def test_getitem_success(self):
         assert self.d["top"] == 42
 
-    def test_getitem_failure_returns_ellipsis(self):
-        assert self.d["missing"] is ...
+    def test_getitem_failure_raises_keyerror(self):
+        import pytest
+        with pytest.raises(KeyError):
+            _ = self.d["missing"]
 
     def test_getitem_none_value(self):
         assert self.d["none_val"] is None

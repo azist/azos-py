@@ -525,3 +525,61 @@ class TestCircularAndChainedVarRefs:
         })
         with pytest.raises(ConfigError):
             d.as_str("x")
+
+# ===========================================================================
+# as_descriptor
+# ===========================================================================
+
+class CustomDesc(Descriptor):
+    pass
+
+
+class TestAsDescriptor:
+    def test_missing_path_returns_default(self, desc):
+        assert desc.as_descriptor("nonexistent", Descriptor) is None
+        default_val = Descriptor({"a": 1})
+        assert desc.as_descriptor("nonexistent", Descriptor, default_val) is default_val
+
+    def test_dict_returns_descriptor(self):
+        d = Descriptor({"sub": {"x": 10}})
+        sub_desc = d.as_descriptor("sub", Descriptor)
+        assert type(sub_desc) is Descriptor
+        assert sub_desc.as_int("x") == 10
+
+    def test_str_json_returns_descriptor(self):
+        d = Descriptor({"json_str": '{"y": 20}'})
+        sub_desc = d.as_descriptor("json_str", Descriptor)
+        assert type(sub_desc) is Descriptor
+        assert sub_desc.as_int("y") == 20
+
+    def test_var_expression_resolves_to_json(self):
+        d = Descriptor({"var": '{"z": 30}', "dyn_json": '$(var)'})
+        sub_desc = d.as_descriptor("dyn_json", CustomDesc)
+        assert type(sub_desc) is CustomDesc
+        assert sub_desc.as_int("z") == 30
+
+    def test_verbatim_skips_var_expansion(self):
+        d = Descriptor({"var": '{"z": 30}', "dyn_json": '$(var)'})
+        # Verbatim skips expansion, text "$(var)" is bad JSON, should return None
+        assert d.as_descriptor("dyn_json", Descriptor, verbatim=True) is None
+
+    def test_already_descriptor_type(self):
+        existing = CustomDesc({"v": 1})
+        d = Descriptor({"obj": existing})
+
+        res1 = d.as_descriptor("obj", CustomDesc)
+        assert res1 is existing
+
+        res2 = d.as_descriptor("obj", Descriptor)
+        assert res2 is existing
+
+    def test_bad_json_returns_default(self):
+        d = Descriptor({"bad": '{"a: missing_quote}'})
+        default_val = Descriptor({})
+        assert d.as_descriptor("bad", Descriptor, default=default_val) is default_val
+
+    def test_descriptor_nesting_properties(self):
+        d = Descriptor({"sub": {"x": 10}}, scope_path="top")
+        sub_desc = d.as_descriptor("sub", CustomDesc)
+        assert type(sub_desc) is CustomDesc
+        assert sub_desc.scope_path == "top/sub"

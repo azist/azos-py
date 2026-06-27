@@ -30,6 +30,7 @@ from typing import Any, TypeVar
 from azos.chassis import AppChassis, ConfigError, expand_var_expressions
 
 TEnum = TypeVar("TEnum", bound=Enum)
+TDescriptor = TypeVar("TDescriptor", bound="Descriptor")
 
 
 def override_dict(base: dict,
@@ -145,9 +146,12 @@ class Descriptor:
         self._scope: Descriptor = scope or self
         self._scope_path: str = scope_path or ""
 
-    def __getitem__(self, path) -> Any | None | EllipsisType:
-        """Returns the value associated with the given key in the descriptor if it exists or ... to indicate that such key is not present"""
-        return self.navigate(path)
+    def __getitem__(self, path) -> Any | None:
+        """Returns the value associated with the given key in the descriptor or raises KeyError if not present"""
+        value = self.navigate(path)
+        if value is ...:
+            raise KeyError(path)
+        return value
 
 
     def __contains__(self, path):
@@ -453,8 +457,6 @@ class Descriptor:
         value = self.navigate(path)
         if value is ... or value is None:
             return default
-        if value is None:
-            return default
         if isinstance(value, str):
             if not verbatim:
                 expanded = expand_var_expressions(value, resolver=self.var_resolver, chassis=self._chassis)
@@ -554,5 +556,46 @@ class Descriptor:
             return enum_type(value)
         except ValueError:
             pass
+
+        return default
+
+
+    def as_descriptor(
+        self, path: str, descriptor_type: type[TDescriptor], default: TDescriptor | None = None, verbatim: bool = False
+    ) -> TDescriptor | None:
+        """
+        Navigates to the given path and returns the value as a specified descriptor type if possible, otherwise returns
+        the default value. String values are treated as JSON objects and parsed into dictionaries before creating the
+        descriptor.
+
+        If verbatim is False and the value is a string, variable expressions are expanded before conversion.
+        """
+        value = self.navigate(path)
+        if value is ... or value is None:
+            return default
+
+        if isinstance(value, descriptor_type):
+            return value
+
+        # Variables expansion
+        if isinstance(value, str):
+            if not verbatim:
+                value = expand_var_expressions(value, resolver=self.var_resolver, chassis=self._chassis)
+                if value is None:
+                    return default
+            try:
+                # Attempt to parse the string as JSON and create a descriptor from it
+                import json
+                parsed_value = json.loads(value)
+                if isinstance(parsed_value, dict):
+                    value = parsed_value
+            except:
+                return default
+
+        if isinstance(value, dict):
+            return descriptor_type(value,
+                                   chassis=self._chassis,
+                                   scope=self._scope,
+                                   scope_path=f"{self.scope_path}/{path}" if self.scope_path else path)
 
         return default
