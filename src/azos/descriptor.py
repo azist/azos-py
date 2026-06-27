@@ -355,7 +355,7 @@ class Descriptor:
             if got is ...:
                 return False, ""  # variable not found, return False to continue expression evaluation
 
-            return True, got if got is not None else ""
+            return True, str(got) if got is not None else ""
 
         except Exception as cause:
             raise ConfigError(f"Error resolving var `{var_name}` in {self.__class__.__name__}[`{self.scope_path}`] "
