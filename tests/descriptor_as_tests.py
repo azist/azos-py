@@ -583,3 +583,10 @@ class TestAsDescriptor:
         sub_desc = d.as_descriptor("sub", CustomDesc)
         assert type(sub_desc) is CustomDesc
         assert sub_desc.scope_path == "top/sub"
+
+def test_as_descriptor_default_type():
+    from azos.descriptor import Descriptor
+    d = Descriptor({"sub": {"a": 1}})
+    sub_desc = d.as_descriptor("sub")
+    assert isinstance(sub_desc, Descriptor)
+    assert sub_desc.as_int("a") == 1

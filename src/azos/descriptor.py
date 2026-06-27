@@ -561,8 +561,8 @@ class Descriptor:
 
 
     def as_descriptor(
-        self, path: str, descriptor_type: type[TDescriptor], default: TDescriptor | None = None, verbatim: bool = False
-    ) -> TDescriptor | None:
+        self, path: str, descriptor_type: type[TDescriptor] | type['Descriptor'] | None = None, default: TDescriptor | 'Descriptor' | None = None, verbatim: bool = False
+    ) -> TDescriptor | 'Descriptor' | None:
         """
         Navigates to the given path and returns the value as a specified descriptor type if possible, otherwise returns
         the default value. String values are treated as JSON objects and parsed into dictionaries before creating the
@@ -570,6 +570,9 @@ class Descriptor:
 
         If verbatim is False and the value is a string, variable expressions are expanded before conversion.
         """
+        if descriptor_type is None:
+            descriptor_type = Descriptor  # type: ignore
+
         value = self.navigate(path)
         if value is ... or value is None:
             return default
