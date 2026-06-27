@@ -1,5 +1,5 @@
 """
-Tests for Descriptor.as_int / as_float / as_bool / as_str / as_datetime
+Tests for Descriptor.as_int / as_float / as_bool / as_str / as_datetime / as_enum
 
 Each section covers:
   - native-typed values stored directly in the dict
@@ -11,9 +11,16 @@ Each section covers:
 
 import pytest
 from datetime import datetime, timezone, timedelta
+from enum import Enum
 
 from azos.chassis import ConfigError
 from azos.descriptor import Descriptor
+
+
+class Color(Enum):
+    RED = 1
+    GREEN = 2
+    BLUE = 3
 
 
 # ---------------------------------------------------------------------------
@@ -82,6 +89,16 @@ DATA = {
     "dt_us_hhmm_am":  "01/15/2024 06:00 AM",
     "dt_str_bad":     "not-a-date",
     "dt_var":         "$(dt_iso_date)",  # expands to "2024-01-15"
+
+    # enums
+    "e_native": Color.GREEN,
+    "e_int": 3,
+    "e_str_int": "1",
+    "e_str_name": "red",
+    "e_str_name_case": "bLuE",
+    "e_str_bad": "yellow",
+    "e_int_bad": 99,
+    "e_var": "$(e_str_name)",
 }
 
 
@@ -108,9 +125,9 @@ class TestAsInt:
         assert desc.as_int("i_str_bad") is None
         assert desc.as_int("i_str_bad", default=-1) == -1
 
-    def test_float_value_returns_default(self, desc):
-        """Float stored natively is not an int; as_int returns default."""
-        assert desc.as_int("f_native") is None
+    def test_float_value_returns_rounded(self, desc):
+        """Float stored natively is rounded to the nearest integer."""
+        assert desc.as_int("f_native")  == 3
 
     def test_missing_path_returns_default(self, desc):
         """Completely absent key returns the default."""
@@ -400,6 +417,52 @@ class TestAsDatetime:
 
 
 # ===========================================================================
+# as_enum
+# ===========================================================================
+
+class TestAsEnum:
+    def test_native_enum(self, desc):
+        """Enum stored directly is returned unchanged."""
+        assert desc.as_enum("e_native", Color) == Color.GREEN
+
+    def test_int_value(self, desc):
+        """Integer matching enum value is coerced."""
+        assert desc.as_enum("e_int", Color) == Color.BLUE
+
+    def test_str_int_value(self, desc):
+        """String of integer matching enum value is coerced."""
+        assert desc.as_enum("e_str_int", Color) == Color.RED
+
+    def test_str_name(self, desc):
+        """String matching enum name case-insensitively is coerced."""
+        assert desc.as_enum("e_str_name", Color) == Color.RED
+        assert desc.as_enum("e_str_name_case", Color) == Color.BLUE
+
+    def test_bad_str_returns_default(self, desc):
+        """Unrecognized string returns default."""
+        assert desc.as_enum("e_str_bad", Color) is None
+        assert desc.as_enum("e_str_bad", Color, default=Color.GREEN) == Color.GREEN
+
+    def test_bad_int_returns_default(self, desc):
+        """Unrecognized integer returns default."""
+        assert desc.as_enum("e_int_bad", Color) is None
+        assert desc.as_enum("e_int_bad", Color, default=Color.RED) == Color.RED
+
+    def test_missing_path_returns_default(self, desc):
+        """Absent key returns default."""
+        assert desc.as_enum("no_such_key", Color) is None
+        assert desc.as_enum("no_such_key", Color, default=Color.BLUE) == Color.BLUE
+
+    def test_var_expression_expanded(self, desc):
+        """$(e_str_name) resolves to 'red' and parses to Color.RED."""
+        assert desc.as_enum("e_var", Color) == Color.RED
+
+    def test_verbatim_skips_expansion(self, desc):
+        """verbatim=True: '$(e_str_name)' is NOT expanded → parse fails → default."""
+        assert desc.as_enum("e_var", Color, verbatim=True) is None
+
+
+# ===========================================================================
 # Circular / deep variable reference chains
 # ===========================================================================
 
@@ -462,3 +525,68 @@ class TestCircularAndChainedVarRefs:
         })
         with pytest.raises(ConfigError):
             d.as_str("x")
+
+# ===========================================================================
+# as_descriptor
+# ===========================================================================
+
+class CustomDesc(Descriptor):
+    pass
+
+
+class TestAsDescriptor:
+    def test_missing_path_returns_default(self, desc):
+        assert desc.as_descriptor("nonexistent", Descriptor) is None
+        default_val = Descriptor({"a": 1})
+        assert desc.as_descriptor("nonexistent", Descriptor, default_val) is default_val
+
+    def test_dict_returns_descriptor(self):
+        d = Descriptor({"sub": {"x": 10}})
+        sub_desc = d.as_descriptor("sub", Descriptor)
+        assert type(sub_desc) is Descriptor
+        assert sub_desc.as_int("x") == 10
+
+    def test_str_json_returns_descriptor(self):
+        d = Descriptor({"json_str": '{"y": 20}'})
+        sub_desc = d.as_descriptor("json_str", Descriptor)
+        assert type(sub_desc) is Descriptor
+        assert sub_desc.as_int("y") == 20
+
+    def test_var_expression_resolves_to_json(self):
+        d = Descriptor({"var": '{"z": 30}', "dyn_json": '$(var)'})
+        sub_desc = d.as_descriptor("dyn_json", CustomDesc)
+        assert type(sub_desc) is CustomDesc
+        assert sub_desc.as_int("z") == 30
+
+    def test_verbatim_skips_var_expansion(self):
+        d = Descriptor({"var": '{"z": 30}', "dyn_json": '$(var)'})
+        # Verbatim skips expansion, text "$(var)" is bad JSON, should return None
+        assert d.as_descriptor("dyn_json", Descriptor, verbatim=True) is None
+
+    def test_already_descriptor_type(self):
+        existing = CustomDesc({"v": 1})
+        d = Descriptor({"obj": existing})
+
+        res1 = d.as_descriptor("obj", CustomDesc)
+        assert res1 is existing
+
+        res2 = d.as_descriptor("obj", Descriptor)
+        assert res2 is existing
+
+    def test_bad_json_returns_default(self):
+        d = Descriptor({"bad": '{"a: missing_quote}'})
+        default_val = Descriptor({})
+        assert d.as_descriptor("bad", Descriptor, default=default_val) is default_val
+
+    def test_descriptor_nesting_properties(self):
+        d = Descriptor({"sub": {"x": 10}}, scope_path="top")
+        sub_desc = d.as_descriptor("sub", CustomDesc)
+        assert type(sub_desc) is CustomDesc
+        assert sub_desc.scope_path == "top/sub"
+
+def test_as_descriptor_default_type():
+    from azos.descriptor import Descriptor
+    d = Descriptor({"sub": {"a": 1}})
+    sub_desc = d.as_descriptor("sub")
+    assert isinstance(sub_desc, Descriptor)
+    assert sub_desc.as_int("a") == 1

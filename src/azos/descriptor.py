@@ -2,17 +2,35 @@
 Descriptors provide convenient way of working with structured data represented as dictionaries, such as JWT claims,
 configuration sections, rulesets, or any other hierarchical data. They provide methods for navigating the data using
 path expressions, and for accessing values in the data with type conversion and variable expression evaluation.
-The ideology is based on the battle tested approach in 10s of large scale enterprise systems using NFX/Azos C# codebase,
-but the implementation is adapted to Python idioms and capabilities.
+
+The ideology is based on the battle tested approach in 10s of large scale enterprise systems 2007-2025 using NFX/Azos C#
+codebases, but the implementation is a clean rewrite for Python idioms and runtime capabilities, as such it avoids
+section-per-section allocations which are used in C# codebase, as this would have been inefficient on a Python runtime,
+instead it uses a single descriptor instance with a `scope` and `scope_path` to navigate the data tree while allowing for
+local and global variable resolution.
+
+A most typical use of descriptors is to wrap a configuration section dictionary and provide convenient access to its values
+ with type conversion. This is heavily used for application component/service configuration and specifically for
+ dynamic business rule management aka "strategy pattern".
+
+> AI Use Warning: This is a very complex and nuanced software component, do not attempt to modify it without a deep
+> understanding of the design and the implications of changes. As of June 2026 even the top of the line AI Models like
+> Claude Opus 4.8 and Google Gemini 3.1 Pro are not able to accurately reason and maintain all of the nuances like
+> value accessors and path navigation without strict architectural human oversight
+
 
 Copyright (C) 2019 - 2026 Azist, MIT License
 """
 
 from datetime import datetime, timezone
+from enum import Enum
 from types import EllipsisType
-from typing import Any
+from typing import Any, TypeVar
 
 from azos.chassis import AppChassis, ConfigError, expand_var_expressions
+
+TEnum = TypeVar("TEnum", bound=Enum)
+TDescriptor = TypeVar("TDescriptor", bound="Descriptor")
 
 
 def override_dict(base: dict,
@@ -128,9 +146,12 @@ class Descriptor:
         self._scope: Descriptor = scope or self
         self._scope_path: str = scope_path or ""
 
-    def __getitem__(self, path) -> Any | None | EllipsisType:
-        """Returns the value associated with the given key in the descriptor if it exists or ... to indicate that such key is not present"""
-        return self.navigate(path)
+    def __getitem__(self, path) -> Any | None:
+        """Returns the value associated with the given key in the descriptor or raises KeyError if not present"""
+        value = self.navigate(path)
+        if value is ...:
+            raise KeyError(path)
+        return value
 
 
     def __contains__(self, path):
@@ -333,11 +354,17 @@ class Descriptor:
         Resolves a variable name to its value for the purpose of evaluating variable expressions in descriptor values.
         Returns a tuple of (found, value), return (True,..) to stop expr eval and use the value
         """
-        got = self.navigate(var_name) # this would conditionally throw for required paths/values
-        if got is ...:
-            return False, ""  # variable not found, return False to continue expression evaluation
+        try:
+            got = self.navigate(var_name) # this would conditionally throw for required paths/values
+            if got is ...:
+                return False, ""  # variable not found, return False to continue expression evaluation
 
-        return True, got if got is not None else ""
+            return True, str(got) if got is not None else ""
+
+        except Exception as cause:
+            raise ConfigError(f"Error resolving var `{var_name}` in {self.__class__.__name__}[`{self.scope_path}`] "
+                              f"because {cause}") from cause
+
 
 
     def as_int(self, path: str, default: int | None = None, verbatim: bool = False) -> int | None:
@@ -346,11 +373,13 @@ class Descriptor:
         If verbatim is False and the value is a string, it will attempt to evaluate variable expressions in the string
         using the chassis before converting to int.
         """
-        ok, value = self.try_navigate(path)
-        if not ok:
+        value = self.navigate(path)
+        if value is ... or value is None:
             return default
         if isinstance(value, int):
             return value
+        if isinstance(value, float):
+            return int(value)
         if isinstance(value, str):
             if not verbatim:
                 # value = eval(value)  EVALUATE string
@@ -370,8 +399,8 @@ class Descriptor:
         If verbatim is False and the value is a string, it will attempt to evaluate variable expressions in the string
         using the chassis before converting to float.
         """
-        ok, value = self.try_navigate(path)
-        if not ok:
+        value = self.navigate(path)
+        if value is ... or value is None:
             return default
         if isinstance(value, float):
             return value
@@ -399,12 +428,12 @@ class Descriptor:
         Non-zero integers are True, zero is False.
         If verbatim is False and the value is a string, variable expressions are expanded before conversion.
         """
-        ok, value = self.try_navigate(path)
-        if not ok:
+        value = self.navigate(path)
+        if value is ... or value is None:
             return default
         if isinstance(value, bool):
             return value
-        if isinstance(value, int):
+        if isinstance(value, (int, float)):
             return value != 0
         if isinstance(value, str):
             if not verbatim:
@@ -425,10 +454,8 @@ class Descriptor:
         If verbatim is False and the value is a string, variable expressions are expanded before returning.
         Non-string values are converted via str().
         """
-        ok, value = self.try_navigate(path)
-        if not ok:
-            return default
-        if value is None:
+        value = self.navigate(path)
+        if value is ... or value is None:
             return default
         if isinstance(value, str):
             if not verbatim:
@@ -462,8 +489,8 @@ class Descriptor:
 
         If verbatim is False and the value is a string, variable expressions are expanded before conversion.
         """
-        ok, value = self.try_navigate(path)
-        if not ok:
+        value = self.navigate(path)
+        if value is ... or value is None:
             return default
         if isinstance(value, datetime):
             return value
@@ -489,4 +516,89 @@ class Descriptor:
                     return datetime.strptime(s, fmt)
                 except ValueError:
                     continue
+        return default
+
+    def as_enum(
+        self, path: str, enum_type: type[TEnum], default: TEnum | None = None, verbatim: bool = False
+    ) -> TEnum | None:
+        """
+        Navigates to the given path and returns the value as a specified enum type if possible, otherwise returns the default value.
+
+        Accepts:
+         - An instance of the enum type itself.
+         - The enum value directly.
+         - A string representing the enum member name (case-insensitive for convenience) or value.
+
+        If verbatim is False and the value is a string, variable expressions are expanded before conversion.
+        """
+        value = self.navigate(path)
+        if value is ... or value is None:
+            return default
+
+        if isinstance(value, enum_type):
+            return value
+
+        # Variables expansion
+        if isinstance(value, str):
+            if not verbatim:
+                value = expand_var_expressions(value, resolver=self.var_resolver, chassis=self._chassis)
+                if value is None:
+                    return default
+            s = value.strip()
+            # Try to match by name (case-insensitive) or stringified value
+            s_lower = s.lower()
+            for member in enum_type:
+                if member.name.lower() == s_lower or str(member.value) == s:
+                    return member
+
+        # Try to match by direct value instantiation
+        try:
+            return enum_type(value)
+        except ValueError:
+            pass
+
+        return default
+
+
+    def as_descriptor(
+        self, path: str, descriptor_type: type[TDescriptor] | type['Descriptor'] | None = None, default: TDescriptor | 'Descriptor' | None = None, verbatim: bool = False
+    ) -> TDescriptor | 'Descriptor' | None:
+        """
+        Navigates to the given path and returns the value as a specified descriptor type if possible, otherwise returns
+        the default value. String values are treated as JSON objects and parsed into dictionaries before creating the
+        descriptor.
+
+        If verbatim is False and the value is a string, variable expressions are expanded before conversion.
+        """
+        if descriptor_type is None:
+            descriptor_type = Descriptor  # type: ignore
+
+        value = self.navigate(path)
+        if value is ... or value is None:
+            return default
+
+        if isinstance(value, descriptor_type):
+            return value
+
+        # Variables expansion
+        if isinstance(value, str):
+            if not verbatim:
+                value = expand_var_expressions(value, resolver=self.var_resolver, chassis=self._chassis)
+                if value is None:
+                    return default
+            try:
+                # Attempt to parse the string as JSON and create a descriptor from it
+                import json
+                parsed_value = json.loads(value)
+                if isinstance(parsed_value, dict):
+                    value = parsed_value
+            except:
+                return default
+
+        if isinstance(value, dict):
+            return descriptor_type(value,
+                                   chassis=self._chassis,
+                                   scope=self._scope,
+                                   scope_path=f"{self.scope_path}/{path}" if self.scope_path else path)
+
         return default
