@@ -81,7 +81,7 @@ def make_config() -> dict:
                 {
                     "name":      "app-file",
                     "type":      "file",
-                    "path":      "$(paths/logs)/app.log",
+                    "path":      "$(/paths/logs)/app.log",
                     "max-size":  "100mb",
                     "rotate":    True,
                     "keep":      7,
@@ -90,7 +90,7 @@ def make_config() -> dict:
                 {
                     "name":      "error-file",
                     "type":      "file",
-                    "path":      "$(paths/logs)/error.log",
+                    "path":      "$(/paths/logs)/error.log",
                     "max-size":  "50mb",
                     "rotate":    True,
                     "keep":      30,
@@ -99,7 +99,7 @@ def make_config() -> dict:
                 {
                     "name":      "audit-file",
                     "type":      "file",
-                    "path":      "$(paths/logs)/audit.log",
+                    "path":      "$(/paths/logs)/audit.log",
                     "max-size":  "200mb",
                     "rotate":    True,
                     "keep":      365,
@@ -108,7 +108,7 @@ def make_config() -> dict:
                 {
                     "name":      "structured-json",
                     "type":      "file",
-                    "path":      "$(paths/logs)/structured.json.log",
+                    "path":      "$(/paths/logs)/structured.json.log",
                     "format":    "json",
                     "max-size":  "500mb",
                     "rotate":    True,
@@ -144,7 +144,7 @@ def make_config() -> dict:
                 {
                     "name":          "mongo-primary",
                     "type":          "mongodb",
-                    "connect":       "mongodb://$(uris/mongo-primary)/warehousedb?replicaSet=rs0",
+                    "connect":       "mongodb://$(/uris/mongo-primary)/warehousedb?replicaSet=rs0",
                     "auth-db":       "admin",
                     "fetch-by":      500,
                     "null-treatment": "omit",
@@ -161,7 +161,7 @@ def make_config() -> dict:
                 {
                     "name":          "mongo-archive",
                     "type":          "mongodb",
-                    "connect":       "mongodb://$(uris/mongo-archive)/archivedb",
+                    "connect":       "mongodb://$(/uris/mongo-archive)/archivedb",
                     "auth-db":       "admin",
                     "fetch-by":      1000,
                     "null-treatment": "preserve",
@@ -176,7 +176,7 @@ def make_config() -> dict:
                 {
                     "name":          "mssql-crm",
                     "type":          "mssql",
-                    "connect":       "Server=$(uris/mssql-crm);Database=CRM;Encrypt=True;TrustServerCertificate=False;ApplicationName=warehouse-svc",
+                    "connect":       "Server=$(/uris/mssql-crm);Database=CRM;Encrypt=True;TrustServerCertificate=False;ApplicationName=warehouse-svc",
                     "schema":        "dbo",
                     "fetch-by":      200,
                     "null-treatment": "dbnull",
@@ -193,7 +193,7 @@ def make_config() -> dict:
                 {
                     "name":          "oracle-erp",
                     "type":          "oracle",
-                    "connect":       "(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=$(uris/oracle-erp-host))(PORT=$(uris/oracle-erp-port)))(CONNECT_DATA=(SERVICE_NAME=ERPPRD)))",
+                    "connect":       "(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=$(/uris/oracle-erp-host))(PORT=$(/uris/oracle-erp-port)))(CONNECT_DATA=(SERVICE_NAME=ERPPRD)))",
                     "user":          "erp_ro",
                     "schema":        "ERP",
                     "fetch-by":      100,
@@ -356,7 +356,7 @@ class TestLogSinks:
     def test_sink_path_verbatim_keeps_expression(self, cfg):
         """verbatim=True: the raw $(paths/logs) template is returned unexpanded."""
         s = sink_desc(cfg, "app-file")
-        assert s.as_str("path", verbatim=True) == "$(paths/logs)/app.log"
+        assert s.as_str("path", verbatim=True) == "$(/paths/logs)/app.log"
 
     def test_app_file_keep_days(self, cfg):
         """app-file: keep integer returned correctly."""
@@ -399,7 +399,7 @@ class TestMongoPrimary:
     def test_connect_verbatim_keeps_expression(self, cfg):
         """verbatim=True: the raw $(uris/…) token is left untouched."""
         s = store_desc(cfg, "mongo-primary")
-        assert s.as_str("connect", verbatim=True) == "mongodb://$(uris/mongo-primary)/warehousedb?replicaSet=rs0"
+        assert s.as_str("connect", verbatim=True) == "mongodb://$(/uris/mongo-primary)/warehousedb?replicaSet=rs0"
 
     def test_type(self, cfg):
         s = store_desc(cfg, "mongo-primary")
@@ -434,7 +434,7 @@ class TestMongoArchive:
 
     def test_connect_verbatim_keeps_expression(self, cfg):
         s = store_desc(cfg, "mongo-archive")
-        assert s.as_str("connect", verbatim=True) == "mongodb://$(uris/mongo-archive)/archivedb"
+        assert s.as_str("connect", verbatim=True) == "mongodb://$(/uris/mongo-archive)/archivedb"
 
     def test_fetch_by(self, cfg):
         s = store_desc(cfg, "mongo-archive")
@@ -470,7 +470,7 @@ class TestMssqlCrm:
     def test_connect_verbatim_keeps_expression(self, cfg):
         s = store_desc(cfg, "mssql-crm")
         assert s.as_str("connect", verbatim=True) == (
-            "Server=$(uris/mssql-crm);Database=CRM;"
+            "Server=$(/uris/mssql-crm);Database=CRM;"
             "Encrypt=True;TrustServerCertificate=False;"
             "ApplicationName=warehouse-svc"
         )
@@ -518,7 +518,7 @@ class TestOracleErp:
         s = store_desc(cfg, "oracle-erp")
         assert s.as_str("connect", verbatim=True) == (
             "(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)"
-            "(HOST=$(uris/oracle-erp-host))(PORT=$(uris/oracle-erp-port)))"
+            "(HOST=$(/uris/oracle-erp-host))(PORT=$(/uris/oracle-erp-port)))"
             "(CONNECT_DATA=(SERVICE_NAME=ERPPRD)))"
         )
 

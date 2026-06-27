@@ -31,11 +31,21 @@ def test_basic_01():
     assert d["c"] == "$(a)-$(b)"
     assert d["d"] == "08/05/1980"
     assert d["e"] == "-123.09"
+    assert d["/a"] == 1
+    assert d["/b"] is True
+    assert d["/c"] == "$(a)-$(b)"
+    assert d["/d"] == "08/05/1980"
+    assert d["/e"] == "-123.09"
+
     assert d["f"]["a"] == -400 # type: ignore
     assert d["f"]["b"] == "ok" # type: ignore
     assert d["f/a"] == -400
     assert d["f/b"] == "ok"
     assert d["g"] is None
+    assert d["/f/a"] == -400
+    assert d["/f/b"] == "ok"
+    assert d["/g"] is None
+
 
 
 
@@ -60,3 +70,42 @@ def test_basic_01():
 
     assert d.as_float("arr/#3/x") == -56.891
     assert d.as_float("arr/#3/y") == 123.023
+
+
+def test_scoping_01():
+    root = Descriptor({
+        "app": "tezt01",
+        "author": "Mr Toad",
+
+        "paths": {
+            "root": "/opt/$(/app)",
+            "data": "$(/paths/root)/data",
+            "logs": "$(/paths/root)/logs"
+        },
+
+        "log": {
+            "level": "info",
+            "file": "$(/paths/logs)/$(/app)-regular.log"
+        },
+
+        "db": {
+            "host": "localhost",
+            "port": 5432,
+            "file": "$(/paths/data)/$(/app)-data$(rules/suffix).db",
+            "rules": {
+                "suffix": ".chemistry"
+            },
+            "user": "$(/app)_user",
+            "password": "$(secret::db_password)"
+        }
+    });
+
+    # Create configuration vector for a child section "log" and "db" with the root descriptor as the scoping context
+    log = Descriptor(root.data["log"], scope=root, scope_path="log")
+    db = Descriptor(root.data["db"], scope=root, scope_path="db")
+
+    # Notice how we reference our config attributes right of the section
+    assert log.as_str("file") == "/opt/tezt01/logs/tezt01-regular.log"
+    assert db.as_str("user") == "tezt01_user"
+    assert db.as_str("file") == "/opt/tezt01/data/tezt01-data.chemistry.db"
+

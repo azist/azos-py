@@ -190,6 +190,12 @@ class Descriptor:
             return True, self._data
 
         node: Any = self._data
+
+        if path.startswith("/"):
+            # Absolute path navigation from the root scope of the descriptor
+            node = self._scope.data
+            path = path[1:]
+
         segments: list[str] = path.split("/")
 
         for seg in segments:
@@ -324,7 +330,7 @@ class Descriptor:
         Resolves a variable name to its value for the purpose of evaluating variable expressions in descriptor values.
         Returns a tuple of (found, value), return (True,..) to stop expr eval and use the value
         """
-        got = self._scope.navigate(var_name) # this would conditionally throw for required paths/values
+        got = self.navigate(var_name) # this would conditionally throw for required paths/values
         if got is ...:
             return False, ""  # variable not found, return False to continue expression evaluation
 
