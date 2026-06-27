@@ -333,11 +333,17 @@ class Descriptor:
         Resolves a variable name to its value for the purpose of evaluating variable expressions in descriptor values.
         Returns a tuple of (found, value), return (True,..) to stop expr eval and use the value
         """
-        got = self.navigate(var_name) # this would conditionally throw for required paths/values
-        if got is ...:
-            return False, ""  # variable not found, return False to continue expression evaluation
+        try:
+            got = self.navigate(var_name) # this would conditionally throw for required paths/values
+            if got is ...:
+                return False, ""  # variable not found, return False to continue expression evaluation
 
-        return True, got if got is not None else ""
+            return True, got if got is not None else ""
+
+        except Exception as cause:
+            raise ConfigError(f"Error resolving var `{var_name}` in {self.__class__.__name__}[`{self.scope_path}`] "
+                              f"because {cause}") from cause
+
 
 
     def as_int(self, path: str, default: int | None = None, verbatim: bool = False) -> int | None:
@@ -346,8 +352,8 @@ class Descriptor:
         If verbatim is False and the value is a string, it will attempt to evaluate variable expressions in the string
         using the chassis before converting to int.
         """
-        ok, value = self.try_navigate(path)
-        if not ok:
+        value = self.navigate(path)
+        if value is ... or value is None:
             return default
         if isinstance(value, int):
             return value
@@ -370,8 +376,8 @@ class Descriptor:
         If verbatim is False and the value is a string, it will attempt to evaluate variable expressions in the string
         using the chassis before converting to float.
         """
-        ok, value = self.try_navigate(path)
-        if not ok:
+        value = self.navigate(path)
+        if value is ... or value is None:
             return default
         if isinstance(value, float):
             return value
@@ -399,8 +405,8 @@ class Descriptor:
         Non-zero integers are True, zero is False.
         If verbatim is False and the value is a string, variable expressions are expanded before conversion.
         """
-        ok, value = self.try_navigate(path)
-        if not ok:
+        value = self.navigate(path)
+        if value is ... or value is None:
             return default
         if isinstance(value, bool):
             return value
@@ -425,8 +431,8 @@ class Descriptor:
         If verbatim is False and the value is a string, variable expressions are expanded before returning.
         Non-string values are converted via str().
         """
-        ok, value = self.try_navigate(path)
-        if not ok:
+        value = self.navigate(path)
+        if value is ... or value is None:
             return default
         if value is None:
             return default
@@ -462,8 +468,8 @@ class Descriptor:
 
         If verbatim is False and the value is a string, variable expressions are expanded before conversion.
         """
-        ok, value = self.try_navigate(path)
-        if not ok:
+        value = self.navigate(path)
+        if value is ... or value is None:
             return default
         if isinstance(value, datetime):
             return value

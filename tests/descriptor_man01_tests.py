@@ -23,7 +23,11 @@ def test_basic_01():
             "b": "ok"
         },
         "arr": [1, None, True, {"x": -56.891, "y": "123.023"}],
-        "g": None
+        "g": None,
+        "devs": [
+            {"name": "dev1", "type": "sensor"},
+            {"name": "dev2", "type": "actuator"}
+        ]
     })
 
     assert d["a"] == 1
@@ -45,6 +49,16 @@ def test_basic_01():
     assert d["/f/a"] == -400
     assert d["/f/b"] == "ok"
     assert d["/g"] is None
+
+    assert d["devs/#0/name"] == "dev1"
+    assert d["devs/#0/type"] == "sensor"
+    assert d["devs/#1/name"] == "dev2"
+    assert d["devs/#1/type"] == "actuator"
+
+    assert d["devs/$name=dev1/name"] == "dev1"
+    assert d["devs/$name=dev1/type"] == "sensor"
+    assert d["devs/$name=dev2/name"] == "dev2"
+    assert d["devs/$name=dev2/type"] == "actuator"
 
 
 
@@ -76,6 +90,7 @@ def test_scoping_01():
     root = Descriptor({
         "app": "tezt01",
         "author": "Mr Toad",
+        "log-level": "info",
 
         "paths": {
             "root": "/opt/$(/app)",
@@ -85,7 +100,8 @@ def test_scoping_01():
 
         "log": {
             "level": "info",
-            "file": "$(/paths/logs)/$(/app)-regular.log"
+            "file": "$(/paths/logs)/$(/app)-regular.log",
+            "min-level": "$(!/log-level)" # value required
         },
 
         "db": {
@@ -109,3 +125,4 @@ def test_scoping_01():
     assert db.as_str("user") == "tezt01_user"
     assert db.as_str("file") == "/opt/tezt01/data/tezt01-data.chemistry.db"
 
+    assert log.as_str("!min-level") == "info"
