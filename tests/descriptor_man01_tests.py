@@ -5,9 +5,6 @@ Copyright (C) 2026 Azist, MIT License
 """
 
 from enum import Enum
-from typing import override
-
-from azos.oop import free
 from azos.descriptor import Descriptor
 
 

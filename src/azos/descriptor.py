@@ -22,8 +22,9 @@ A most typical use of descriptors is to wrap a configuration section dictionary 
 Copyright (C) 2019 - 2026 Azist, MIT License
 """
 
-from datetime import datetime, timezone
+import copy
 from enum import Enum
+from datetime import datetime, timezone
 from types import EllipsisType
 from typing import Any, TypeVar
 
@@ -44,7 +45,7 @@ def override_dict(base: dict,
     The system "merges" the overriding keys over the base, key-by-key recursively.
     If the value is a list, then the system merges items from the overriding list into the base list subject to list merging
     pragmas described below. If the overriding value does not match the collection type, such as dict overriding list or vice versa,
-    the ConfigError is raised.
+    then the base value just gets replaced by the overriding value.
 
     The base dictionary can contain special pragmas to control the overriding behavior:
 
@@ -55,7 +56,7 @@ def override_dict(base: dict,
       - If the pragma value is "stop" an attempt to override this value will be ignored and the base dictionary will be kept as is
       - If the pragma value is "merge" (the default) the overriding values will be merged key-by-key over existing values in the base dictionary (i.e. the default behavior)
 
-    - If the overriding list value contains the value specified by `clear_list_pragma` it deletes all items form the list
+    - If the overriding list value contains the value specified by `clear_list_pragma` it deletes all items from the list
     - If the list item is an object/dictionary and contains the specified key by `list_item_key`, the overriding item with the same
       value of this key will replace the base item with the same value of this key, otherwise the overriding item will be
       appended to the list
@@ -95,31 +96,32 @@ def override_dict(base: dict,
 
         base_val = base[key]
         if isinstance(base_val, dict):
-            if not isinstance(ov_val, dict):
-                raise ConfigError(f"override_dict(): type mismatch at '{key_path}': base is dict but override is {type(ov_val).__name__}")
-            override_dict(base_val, ov_val, override_pragma, clear_list_pragma, list_item_key, key_path)
+            if isinstance(ov_val, dict):
+                override_dict(base_val, ov_val, override_pragma, clear_list_pragma, list_item_key, key_path)
+            else:
+                base[key] = ov_val
 
         elif isinstance(base_val, list):
-            if not isinstance(ov_val, list):
-                raise ConfigError(f"override_dict(): type mismatch at '{key_path}': base is list but override is {type(ov_val).__name__}")
+            if isinstance(ov_val, list):
+                # Check for clear pragma in the override list
+                ov_items = [item for item in ov_val if item != clear_list_pragma]
+                if len(ov_items) < len(ov_val):  # _clear was present
+                    base_val.clear()
 
-            # Check for clear pragma in the override list
-            ov_items = [item for item in ov_val if item != clear_list_pragma]
-            if len(ov_items) < len(ov_val):  # _clear was present
-                base_val.clear()
-
-            # Merge overriding items into base list
-            for ov_item in ov_items:
-                if isinstance(ov_item, dict) and list_item_key in ov_item:
-                    match_val = ov_item[list_item_key]
-                    for i, base_item in enumerate(base_val):
-                        if isinstance(base_item, dict) and base_item.get(list_item_key) == match_val:
-                            base_val[i] = ov_item
-                            break
+                # Merge overriding items into base list
+                for ov_item in ov_items:
+                    if isinstance(ov_item, dict) and list_item_key in ov_item:
+                        match_val = ov_item[list_item_key]
+                        for i, base_item in enumerate(base_val):
+                            if isinstance(base_item, dict) and base_item.get(list_item_key) == match_val:
+                                base_val[i] = ov_item
+                                break
+                        else:
+                            base_val.append(ov_item)
                     else:
                         base_val.append(ov_item)
-                else:
-                    base_val.append(ov_item)
+            else:
+                base[key] = ov_val
         else:
             base[key] = ov_val
 
@@ -145,6 +147,27 @@ class Descriptor:
         self._chassis: AppChassis | None = chassis
         self._scope: Descriptor = scope or self
         self._scope_path: str = scope_path or ""
+
+
+    def clone(self) -> Descriptor:
+        """
+        Creates a deep copy of this descriptor, including its underlying data dictionary. The cloned descriptor will
+        have the same chassis, scope, and scope_path as the original descriptor.
+        """
+        return self.__class__(copy.deepcopy(self._data), self._chassis, self._scope, self._scope_path)
+
+
+    def __repr__(self) -> str:
+        r = repr(self._data)
+        if (len(r) > 80):
+            r = r[:40] + "..." + r[-40:]
+        return f"{self.__class__.__name__}({r})"
+
+
+    def __len__(self) -> int:
+        """Returns the number of top-level keys in the descriptor"""
+        return len(self._data)
+
 
     def __getitem__(self, path) -> Any | None:
         """Returns the value associated with the given key in the descriptor or raises KeyError if not present"""
@@ -194,6 +217,47 @@ class Descriptor:
         and variable resolution to provide context about where this descriptor is located within the scoping parent descriptor
         """
         return self._scope_path
+
+
+    def override_by(self,
+                  override: Descriptor | dict,
+                  override_pragma: str = "_override",
+                  clear_list_pragma: str = "_clear",
+                  list_item_key: str = "name") -> None:
+        """
+        Mutates this descriptor by recursively overriding its items key-by-key with the values from the overriding dictionary.
+        The system "merges" the overriding keys over the base, key-by-key recursively.
+        If the value is a list, then the system merges items from the overriding list into the base list subject to list merging
+        pragmas described below. If the overriding value does not match the collection type, such as dict overriding list or vice versa,
+        then the base value just gets replaced by the overriding value.
+
+        The base dictionary can contain special pragmas to control the overriding behavior:
+
+        - If a dictionary in the base contains the key specified by `override_pragma`, it will read the pragma value and
+        apply it as follows:
+        - If the pragma value is "replace", the value from override dictionary will completely replace the base dictionary
+        - If the pragma value is "fail" an attempt to override this value will raise a ConfigError
+        - If the pragma value is "stop" an attempt to override this value will be ignored and the base dictionary will be kept as is
+        - If the pragma value is "merge" (the default) the overriding values will be merged key-by-key over existing values in the base dictionary (i.e. the default behavior)
+
+        - If the overriding list value contains the value specified by `clear_list_pragma` it deletes all items from the list
+        - If the list item is an object/dictionary and contains the specified key by `list_item_key`, the overriding item with the same
+        value of this key will replace the base item with the same value of this key, otherwise the overriding item will be
+        appended to the list
+
+            Arguments:
+                - base: The base dictionary to be mutated by overriding values from the override dictionary
+                - override: The overriding Descriptor or dictionary whose values will be merged into the base dictionary
+                - override_pragma: The key name for the overriding pragma in dictionaries (default "_override")
+                - clear_list_pragma: The value in a list that indicates that the list should be cleared before merging (default "_clear")
+                - list_item_key: The key name in list items that is used to match items for replacement (default "name")
+        """
+        override_dict(self._data,
+                      override if isinstance(override, dict) else override._data,
+                      override_pragma,
+                      clear_list_pragma,
+                      list_item_key,
+                      self.scope_path)
 
 
     def try_navigate(self, path: str) -> tuple[bool, Any | None]:

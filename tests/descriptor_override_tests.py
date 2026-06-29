@@ -100,26 +100,20 @@ class TestRecursiveDictMerge:
         base = {"a": {"x": 1, "y": 2}, "b": 42}
         assert od(base, {"a": {"x": 10}}) == {"a": {"x": 10, "y": 2}, "b": 42}
 
-    def test_05_type_mismatch_dict_over_list_raises(self):
-        """Override dict where base has list raises ConfigError"""
+    def test_05_type_mismatch_dict_over_list_replaces(self):
+        """Override dict where base has list replaces base"""
         base = {"items": [1, 2, 3]}
-        with pytest.raises(ConfigError) as exc:
-            override_dict(base, {"items": {"a": 1}})
-        assert "items" in str(exc.value)
+        assert od(base, {"items": {"a": 1}}) == {"items": {"a": 1}}
 
-    def test_06_type_mismatch_list_over_dict_raises(self):
-        """Override list where base has dict raises ConfigError"""
+    def test_06_type_mismatch_list_over_dict_replaces(self):
+        """Override list where base has dict replaces base"""
         base = {"cfg": {"a": 1}}
-        with pytest.raises(ConfigError) as exc:
-            override_dict(base, {"cfg": [1, 2]})
-        assert "cfg" in str(exc.value)
+        assert od(base, {"cfg": [1, 2]}) == {"cfg": [1, 2]}
 
-    def test_07_type_mismatch_path_shown_in_error(self):
-        """Error message for nested mismatch includes full path"""
+    def test_07_type_mismatch_nested_replaces(self):
+        """Nested mismatch replaces base"""
         base = {"outer": {"inner": {"val": [1, 2]}}}
-        with pytest.raises(ConfigError) as exc:
-            override_dict(base, {"outer": {"inner": {"val": {"x": 1}}}})
-        assert "outer/inner/val" in str(exc.value)
+        assert od(base, {"outer": {"inner": {"val": {"x": 1}}}}) == {"outer": {"inner": {"val": {"x": 1}}}}
 
     def test_08_override_pragma_key_in_override_is_merged_normally(self):
         """_override key in the override dict is treated as a regular key and merged into base"""
@@ -452,9 +446,7 @@ class TestCombined:
         with pytest.raises(ConfigError):
             override_dict(base, {"readonly": {"y": 99}})
 
-    def test_08_path_reported_in_nested_type_mismatch(self):
-        """Full path appears in error for deeply nested type mismatch"""
+    def test_08_nested_type_mismatch_replaces(self):
+        """Deeply nested type mismatch replaces base"""
         base = {"a": {"b": {"c": [1, 2, 3]}}}
-        with pytest.raises(ConfigError) as exc:
-            override_dict(base, {"a": {"b": {"c": {"key": "val"}}}})
-        assert "a/b/c" in str(exc.value)
+        assert od(base, {"a": {"b": {"c": {"key": "val"}}}}) == {"a": {"b": {"c": {"key": "val"}}}}
