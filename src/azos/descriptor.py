@@ -44,7 +44,7 @@ def override_dict(base: dict,
     The system "merges" the overriding keys over the base, key-by-key recursively.
     If the value is a list, then the system merges items from the overriding list into the base list subject to list merging
     pragmas described below. If the overriding value does not match the collection type, such as dict overriding list or vice versa,
-    the ConfigError is raised.
+    then the base value just gets replaced by the overriding value.
 
     The base dictionary can contain special pragmas to control the overriding behavior:
 
@@ -55,7 +55,7 @@ def override_dict(base: dict,
       - If the pragma value is "stop" an attempt to override this value will be ignored and the base dictionary will be kept as is
       - If the pragma value is "merge" (the default) the overriding values will be merged key-by-key over existing values in the base dictionary (i.e. the default behavior)
 
-    - If the overriding list value contains the value specified by `clear_list_pragma` it deletes all items form the list
+    - If the overriding list value contains the value specified by `clear_list_pragma` it deletes all items from the list
     - If the list item is an object/dictionary and contains the specified key by `list_item_key`, the overriding item with the same
       value of this key will replace the base item with the same value of this key, otherwise the overriding item will be
       appended to the list
@@ -95,31 +95,32 @@ def override_dict(base: dict,
 
         base_val = base[key]
         if isinstance(base_val, dict):
-            if not isinstance(ov_val, dict):
-                raise ConfigError(f"override_dict(): type mismatch at '{key_path}': base is dict but override is {type(ov_val).__name__}")
-            override_dict(base_val, ov_val, override_pragma, clear_list_pragma, list_item_key, key_path)
+            if isinstance(ov_val, dict):
+                override_dict(base_val, ov_val, override_pragma, clear_list_pragma, list_item_key, key_path)
+            else:
+                base[key] = ov_val
 
         elif isinstance(base_val, list):
-            if not isinstance(ov_val, list):
-                raise ConfigError(f"override_dict(): type mismatch at '{key_path}': base is list but override is {type(ov_val).__name__}")
+            if isinstance(ov_val, list):
+                # Check for clear pragma in the override list
+                ov_items = [item for item in ov_val if item != clear_list_pragma]
+                if len(ov_items) < len(ov_val):  # _clear was present
+                    base_val.clear()
 
-            # Check for clear pragma in the override list
-            ov_items = [item for item in ov_val if item != clear_list_pragma]
-            if len(ov_items) < len(ov_val):  # _clear was present
-                base_val.clear()
-
-            # Merge overriding items into base list
-            for ov_item in ov_items:
-                if isinstance(ov_item, dict) and list_item_key in ov_item:
-                    match_val = ov_item[list_item_key]
-                    for i, base_item in enumerate(base_val):
-                        if isinstance(base_item, dict) and base_item.get(list_item_key) == match_val:
-                            base_val[i] = ov_item
-                            break
+                # Merge overriding items into base list
+                for ov_item in ov_items:
+                    if isinstance(ov_item, dict) and list_item_key in ov_item:
+                        match_val = ov_item[list_item_key]
+                        for i, base_item in enumerate(base_val):
+                            if isinstance(base_item, dict) and base_item.get(list_item_key) == match_val:
+                                base_val[i] = ov_item
+                                break
+                        else:
+                            base_val.append(ov_item)
                     else:
                         base_val.append(ov_item)
-                else:
-                    base_val.append(ov_item)
+            else:
+                base[key] = ov_val
         else:
             base[key] = ov_val
 
