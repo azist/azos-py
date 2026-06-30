@@ -442,6 +442,10 @@ class AppChassis(DisposableObject):
             if callable(callback):
                 callback()
 
+    def __del__(self):
+         if not self._is_default:
+             super().__del__() # call base class finalizer for leak detection
+
     @override
     def dispose(self) -> None:
         if self._is_default:
@@ -473,6 +477,9 @@ class AppChassis(DisposableObject):
             if callable(callback):
                 callback()
 
+    def __repr__(self) -> str:
+        return (f"{self.__class__.__name__}(`{self._app}` {"(DEFAULT)" if self._is_default else ""} `{self._environment}` "
+                f"`{self._host}`  `{self._instance_tag}` `{self._entry_point_path}`)")
 
     def _get_environment(self, environment_name: str | None) -> str:
        """

@@ -9,6 +9,7 @@
         "Azist",
         "azos",
         "conio",
+        "finalizer",
         "isdefault",
         "oplog",
         "setuptools"

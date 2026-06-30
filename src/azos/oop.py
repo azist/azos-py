@@ -25,7 +25,7 @@ class DisposableObject(ABC):
         #   self._is_disposed is even created, __del__ will still run. Using getattr(self, '_is_disposed', True)
         #   prevents __del__ from throwing an AttributeError.
         if not getattr(self, '_is_disposed', True):
-            logger.critical(f"MEMORY LEAK: {self.__class__.__name__} not disposed in GC")
+            logger.critical(f"MEMORY LEAK: {self!r} not disposed in GC")
 
     @property
     def is_disposed(self) -> bool:
