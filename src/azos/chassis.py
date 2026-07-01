@@ -383,11 +383,13 @@ class AppChassis(DisposableObject):
     __s_current: Optional["AppChassis"] = None
     __s_global_dependency_callbacks: List[Callable] = []
 
+
     @staticmethod
     def register_global_dependency_callback(callback: Callable):
         """Registers global dependency callback function if it is not yet registered"""
         if callback not in AppChassis.__s_global_dependency_callbacks:
           AppChassis.__s_global_dependency_callbacks.append(callback)
+
 
     @staticmethod
     def get_default_instance() -> "AppChassis":
@@ -396,6 +398,7 @@ class AppChassis(DisposableObject):
       This is a framework internal method which should not be utilized in business apps
       """
       return AppChassis.__s_default # pyright: ignore[reportReturnType]
+
 
     @staticmethod
     def get_current_instance() -> "AppChassis":
@@ -407,6 +410,7 @@ class AppChassis(DisposableObject):
       """
       current = AppChassis.__s_current
       return current if current is not None else AppChassis.__s_default # pyright: ignore[reportReturnType]
+
 
     def __init__(self,
                  app_id: str,
@@ -442,9 +446,11 @@ class AppChassis(DisposableObject):
             if callable(callback):
                 callback()
 
+
     def __del__(self):
          if not self._is_default:
              super().__del__() # call base class finalizer for leak detection
+
 
     @override
     def dispose(self) -> None:
@@ -453,6 +459,7 @@ class AppChassis(DisposableObject):
             return
 
         super().dispose()
+
 
     @override
     def _dispose(self) -> None:
@@ -477,9 +484,11 @@ class AppChassis(DisposableObject):
             if callable(callback):
                 callback()
 
+
     def __repr__(self) -> str:
         return (f"{self.__class__.__name__}(`{self._app}` {"(DEFAULT)" if self._is_default else ""} `{self._environment}` "
                 f"`{self._host}`  `{self._instance_tag}` `{self._entry_point_path}`)")
+
 
     def _get_environment(self, environment_name: str | None) -> str:
        """
@@ -495,6 +504,7 @@ class AppChassis(DisposableObject):
                                     os.getenv(ENV_ENVIRONMENT_NAME_VAR.lower(), DEFAULT_ENV_NAME))
 
        return environment_name.lower() if environment_name else DEFAULT_ENV_NAME
+
 
     def _load_config(self, config: ConfigParser | None) -> ConfigParser:
         """
@@ -537,45 +547,54 @@ class AppChassis(DisposableObject):
 
         return config
 
+
     @property
     def is_default(self) -> bool:
         """Return True if this is a default Application instance"""
         return self._is_default
+
 
     @property
     def config(self) -> ConfigParser:
         """Returns ConfigParser object for this app. It is always present even if app does not have a config file"""
         return self._config
 
+
     @property
     def entry_point_path(self) -> str:
         """Returns full absolute path to the entrypoint"""
         return self._entry_point_path
+
 
     @property
     def environment(self) -> str:
         """Return environment name - always lowercase"""
         return self._environment
 
+
     @property
     def instance_id(self) -> str:
         """Return a string identifier of the running instance"""
         return self._instance_id
+
 
     @property
     def instance_tag(self) -> str:
         """Return a short tag id of the running instance - used for logging"""
         return self._instance_tag
 
+
     @property
     def host(self) -> str:
         """Returns logical host name of this machine. Defaults to physical host name"""
         return self._host
 
+
     @property
     def app(self) -> str:
         """Short application id. Atom recommended"""
         return self._app
+
 
     @property
     def components(self) -> Sequence["AppComponent"]:
@@ -585,6 +604,7 @@ class AppChassis(DisposableObject):
         Returns a readonly copy of the internal component registry
         """
         return tuple(self._components)
+
 
     @property
     def deps(self) -> DIContainer:
@@ -601,6 +621,59 @@ class AppChassis(DisposableObject):
         polymorphically resolve or inject dependencies into themselves
         """
         return self._deps
+
+
+    def __enter__(self):
+        """
+        Context manager entry point. Loops through all owned components and enters their context managers if they
+        implement `__enter__` methods. This allows for deterministic context management of components
+        that require it, such as setting up cross-component references
+        """
+        all = self._components.copy() # copy to avoid concurrent modifications
+        for component in all:
+            if hasattr(component, "__enter__"):
+                component.__enter__() # type: ignore
+
+        return self
+
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        """
+        Context manager exit point. Loops through all owned components in reverse order and exits their context managers
+        if they implement `__exit__` methods. This allows for deterministic context management of components
+        that require it, such as tearing down cross-component references
+        """
+        all = self._components.copy() # copy to avoid concurrent modification during dispose
+        all.reverse()
+        for component in all:
+            if hasattr(component, "__exit__"):
+                component.__exit__(exc_type, exc_value, traceback) # type: ignore
+
+
+    async def __aenter__(self):
+        """
+        Async context manager entry point. Loops through all owned components and enters their async context managers if they
+        implement `__aenter__` methods. This allows for deterministic context management of components
+        that require it, such as setting up cross-component references
+        """
+        all = self._components.copy()  # copy to avoid concurrent modifications
+        for component in all:
+            if hasattr(component, "__aenter__"):
+                await component.__aenter__()  # type: ignore
+        return self
+
+
+    async def __aexit__(self, exc_type, exc_value, traceback):
+        """
+        Async context manager exit point. Loops through all owned components in reverse order and exits their async context
+        managers if they implement `__aexit__` methods. This allows for deterministic context management of components
+        that require it, such as tearing down cross-component references
+        """
+        all = self._components.copy()  # copy to avoid concurrent modification during dispose
+        all.reverse()
+        for component in all:
+            if hasattr(component, "__aexit__"):
+                await component.__aexit__(exc_type, exc_value, traceback)  # type: ignore
 
 
 
