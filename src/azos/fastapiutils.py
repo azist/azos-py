@@ -54,8 +54,11 @@ def fastapi_builder(chassis: AppChassis, routers: List[APIRouter] | None = None,
 
     @asynccontextmanager
     async def fastapi_lifespan(faa: FastAPI):
-        faa.state.chassi = chassis # Bind
-        yield
+        faa.state.chassis = chassis # Bind
+
+        async with chassis: # Enter chassis context manager to ensure proper setup and teardown of components
+            yield
+
         faa.state.chassis = AppChassis.get_default_instance() # Unbind
 
     # FastAPI App Creation
