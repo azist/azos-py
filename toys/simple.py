@@ -4,6 +4,7 @@ from typing import override
 
 import azos.apm.log
 from azos.chassis import AppChassis
+from azos.conio import ANSIColors, highlight_json
 from azos.daemons import AsyncDaemon
 
 class MyDaemon(AsyncDaemon):
@@ -42,6 +43,7 @@ async def main():
 
 if __name__ == "__main__":
     try:
+        print(highlight_json('{"name": "Jo\\"hn", "age": 30, "is_student": false, "courses": ["Math", "Science"]}'))
         asyncio.run(main())
     except KeyboardInterrupt:
         pass
