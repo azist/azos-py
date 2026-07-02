@@ -86,9 +86,15 @@ class IAsyncDaemonControl(IDaemon, Protocol):
 
 class AsyncDaemon(AppComponent, IAsyncDaemonControl):
     """
-    Base class for daemons that run an asynchronous loop.
-    This class provides a convenient way to implement daemons that need to perform periodic tasks or listen for events
-    in an asynchronous manner. Subclasses should implement the `do_work` method to define the daemon's behavior.
+    Base class for daemons that run on an existing asynchronous loop.
+    This class provides a convenient way to implement daemons that need to perform periodic tasks in the background.
+    Subclasses should implement the `do_work` method to define the daemon's behavior.
+
+    You would activate such daemon in FastAPI app by using fastapi builder which installs FastApi context manager which
+    in turn uses app chassis context manager to start and stop all components (such as this daemon) in a deterministic way.
+
+    Note: this class does not spawn any threads or processes and is intended to be used in an existing async event loop,
+    such as the one provided by FastAPI or other async frameworks or your own code.
     """
 
     def __init__(self, chassis: AppChassis, director: AppComponent | None = None) -> None:
@@ -115,15 +121,18 @@ class AsyncDaemon(AppComponent, IAsyncDaemonControl):
 
     @property
     def interval_s(self) -> float:
-        """Controls how often the daemon fires its do_work()"""
+        """Controls how often the daemon fires its do_work(). Override to change the interval. Default is 5 seconds."""
         return 5.0
 
 
     @abstractmethod
-    async def do_work(self) -> None:
+    async def do_work(self, stop_event: asyncio.Event) -> None:
         """
         Abstract async coroutine called periodically by the daemon's spin loop.
         Implement to define the background work performed on each tick.
+
+        Check self.is_daemon_active and self._stop_event.is_set() to determine if the daemon is still active and
+        should continue working. You can bail out early if the daemon is stopping or has been stopped.
         """
         pass
 
@@ -146,17 +155,21 @@ class AsyncDaemon(AppComponent, IAsyncDaemonControl):
             return
 
         self._daemon_status = DaemonStatus.STOPPING
-        if self._stop_event is not None:
-            self._stop_event.set()
+        try:
+            if self._stop_event is not None:
+                self._stop_event.set()
 
-        if self._loop_task is not None:
-            try:
-                await self._loop_task
-            except asyncio.CancelledError:
-                pass
-            self._loop_task = None
-
-        self._daemon_status = DaemonStatus.STOPPED
+            if self._loop_task is not None:
+                try:
+                    await self._loop_task
+                except asyncio.CancelledError:
+                    if not self._loop_task.done():
+                        self._loop_task.cancel()
+                    raise
+                finally:
+                    self._loop_task = None
+        finally:
+            self._daemon_status = DaemonStatus.STOPPED
 
 
     async def _run_loop(self) -> None:
@@ -165,7 +178,7 @@ class AsyncDaemon(AppComponent, IAsyncDaemonControl):
                not self._stop_event.is_set()):
 
             try:
-                await self.do_work()
+                await self.do_work(self._stop_event)
             except Exception as e:
                 self._daemon_failure = e
                 self._log.critical(f"  do_work() leaked: {e.__class__.__name__}", exc_info=True)
