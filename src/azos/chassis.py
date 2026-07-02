@@ -627,7 +627,10 @@ class AppChassis(DisposableObject):
         """
         Context manager entry point. Loops through all owned components and enters their context managers if they
         implement `__enter__` methods. This allows for deterministic context management of components
-        that require it, such as setting up cross-component references
+        that require it, such as setting up cross-component references.
+
+        Notice: Unlike async counterpart this method does NOT call async context managers because it is not possible to call
+        async methods from sync context. If a component implements only async context manager, it will be skipped by this method.
         """
         all = self._components.copy() # copy to avoid concurrent modifications
         for component in all:
@@ -641,9 +644,12 @@ class AppChassis(DisposableObject):
         """
         Context manager exit point. Loops through all owned components in reverse order and exits their context managers
         if they implement `__exit__` methods. This allows for deterministic context management of components
-        that require it, such as tearing down cross-component references
+        that require it, such as tearing down cross-component references.
+
+        Notice: Unlike async counterpart this method does NOT call async context managers because it is not possible to call
+        async methods from sync context. If a component implements only async context manager, it will be skipped by this method.
         """
-        all = self._components.copy() # copy to avoid concurrent modification during dispose
+        all = self._components.copy() # copy to avoid concurrent modification during possible dispose
         all.reverse()
         for component in all:
             if hasattr(component, "__exit__"):
@@ -652,28 +658,38 @@ class AppChassis(DisposableObject):
 
     async def __aenter__(self):
         """
-        Async context manager entry point. Loops through all owned components and enters their async context managers if they
-        implement `__aenter__` methods. This allows for deterministic context management of components
-        that require it, such as setting up cross-component references
+        Async context manager entry point. Loops through all owned components and enters their ASYNC and SYNC context
+        managers if they implement `__aenter__` or `__enter__` methods. This allows for deterministic context management
+        of components that require it, such as setting up cross-component references.
+
+        ASYNC context managers are preferred, but if a component only implements a synchronous `__enter__` method,
+        it will be called as well in a blocking way.
         """
         all = self._components.copy()  # copy to avoid concurrent modifications
         for component in all:
-            if hasattr(component, "__aenter__"):
+            if hasattr(component, "__aenter__"): # 1
                 await component.__aenter__()  # type: ignore
+            elif hasattr(component, "__enter__"): # 2
+                component.__enter__()  # type: ignore
         return self
 
 
     async def __aexit__(self, exc_type, exc_value, traceback):
         """
-        Async context manager exit point. Loops through all owned components in reverse order and exits their async context
-        managers if they implement `__aexit__` methods. This allows for deterministic context management of components
-        that require it, such as tearing down cross-component references
+        Async context manager exit point. Loops through all owned components in reverse order and exits their ASYNC AND SYNC
+        context managers if they implement `__aexit__` or `__exit__` methods. This allows for deterministic context management
+        of components that require it, such as tearing down cross-component references.
+
+        ASYNC context managers are preferred, but if a component only implements a synchronous `__exit__` method,
+        it will be called as well in a blocking way.
         """
-        all = self._components.copy()  # copy to avoid concurrent modification during dispose
+        all = self._components.copy()  # copy to avoid concurrent modification during possible dispose
         all.reverse()
         for component in all:
-            if hasattr(component, "__aexit__"):
+            if hasattr(component, "__aexit__"): # 1
                 await component.__aexit__(exc_type, exc_value, traceback)  # type: ignore
+            elif hasattr(component, "__exit__"): # 2
+                component.__exit__(exc_type, exc_value, traceback)  # type: ignore
 
 
 
@@ -701,10 +717,12 @@ class IAppComponent(Protocol):
         """
         ...
 
+
     @property
     def chassis(self) -> AppChassis:
         """Returns the application chassis instance associated with this component"""
         ...
+
 
     @property
     def director(self) -> Optional["IAppComponent"]:
@@ -758,6 +776,7 @@ class AppComponent(DisposableObject):
             self._chassis._components.remove(self) # Remove self from chassis registry
         except ValueError: pass # if not found, ignore. This is the most efficient way
 
+
     @property
     def sid(self) -> int:
         """
@@ -766,10 +785,12 @@ class AppComponent(DisposableObject):
         """
         return self._sid
 
+
     @property
     def chassis(self) -> AppChassis:
         """Returns the application chassis instance associated with this component"""
         return self._chassis
+
 
     @property
     def director(self) -> Optional["AppComponent"]:
@@ -779,236 +800,6 @@ class AppComponent(DisposableObject):
         it disposes all of its components as well. This is a common pattern in component-based architectures.
         """
         return self._director
-
-
-# ##########################################################
-# ############       DAEMONS     ###########################
-# ##########################################################
-
-class DaemonStatus(Enum):
-    STOPPED = 0
-    STARTING = 1
-    RUNNING = 2
-    STOPPING = 3
-
-
-@runtime_checkable
-class IDaemon(IAppComponent, Protocol):
-    """
-    Protocol defining the contract for startable/stoppable services.
-    This protocol is a marker one which is used for "read-only" access to daemons such as showing their
-    registries/names and statuses in the management tools
-    """
-    @property
-    def daemon_status(self) -> DaemonStatus:
-        ...
-
-    @property
-    def is_daemon_active(self) -> bool:
-        """Convenience property to check if the daemon is currently active: Starting or Running"""
-        ...
-
-    @property
-    def daemon_failure(self) -> object | None:
-        """Captures the last failure if any"""
-        ...
-
-
-@runtime_checkable
-class IDaemonControl(IDaemon, Protocol):
-    """
-    Protocol defining the contract for startable/stoppable services/daemons.
-    Notice the purposeful avoidance of async methods in this protocol as the implementation may be based
-    on threading, multiprocessing, or even external processes, and the control methods are designed to be non-blocking.
-
-    By design daemon control methods should only be called by primary/main application thread and not from within
-    daemon's own execution context to avoid potential deadlocks. If you need to signal a daemon to stop from within
-    its own execution context, consider using an internal event or flag that the daemon checks periodically to determine
-    when to stop, rather than calling `daemon_signal_stop` directly from within the daemon's execution
-    """
-
-    def daemon_start(self) -> None:
-        """
-        Non blocking method to start the daemon.
-        The actual start process may be asynchronous and may involve multiple steps.
-        The method should return immediately after initiating the start process, allowing the caller to continue
-        without waiting for the daemon to be fully started.
-        Check the `daemon_status` property to monitor the progress of the start process.
-
-        If the daemon is not stopped at the time of calling this method, it does nothing.
-        Note, that this method must be called from control thread, such as main thread.
-        """
-        ...
-
-    def daemon_signal_stop(self) -> None:
-        """
-        Non blocking method to signal the daemon to stop.
-        The actual stop process may be asynchronous and may involve multiple steps.
-        The method should return immediately after initiating the stop process, allowing the caller to continue
-        without waiting for the daemon to be fully stopped.
-        Check the `daemon_status` property to monitor the progress of the stop process.
-
-        If the daemon is not running at the time of calling this method, it does nothing.
-        Note, that this method must be called from control thread, such as main thread.
-        """
-        ...
-
-    def daemon_wait_for_stop(self, timeout_sec: float = 0) -> bool:
-        """
-        Blocking method to wait for the daemon to stop.
-        This method should block until the daemon has fully stopped or until the specified timeout has elapsed.
-
-        Note, that this method must be called from control thread, such as main thread.
-
-        :param timeout_sec: Maximum time to wait for the daemon to stop, in seconds. If 0, waits indefinitely.
-        :return: True if the daemon stopped successfully within the timeout, False if the timeout was reached.
-        """
-        ...
-
-
-DAEMON_STOP_WAIT_TIMEOUT_SEC_DEFAULT = 5.78
-"""Default timeout for waiting for daemons to stop during chassis disposal. This is a safeguard to prevent hanging"""
-
-
-class Daemon(AppComponent, IDaemonControl):
-    """
-    Base class for daemons, providing a default implementation of the IDaemonControl protocol.
-    This class can be extended to create specific daemons with custom start/stop logic.
-
-    By design daemon control methods should only be called by primary/main application thread and not from within
-    daemon's own execution context to avoid potential deadlocks. If you need to signal a daemon to stop from within
-    its own execution context, consider using an internal event or flag that the daemon checks periodically to determine
-    when to stop, rather than calling `daemon_signal_stop` directly from within the daemon's execution
-    """
-
-    def __init__(self, chassis: AppChassis, director: AppComponent):
-        super().__init__(chassis, director)
-        self._state_lock = threading.Lock()  # Warning: NOT re-entrant!!!
-        self._status = DaemonStatus.STOPPED
-        self._failure = None
-
-        from azos.apm.log import LogStrand
-        self._log = LogStrand(f"Daemon::{self.__class__.__name__}", rel=chassis.instance_id)
-
-    @override
-    def _dispose(self) -> None:
-        stopped = self.daemon_wait_for_stop(timeout_sec=DAEMON_STOP_WAIT_TIMEOUT_SEC_DEFAULT)
-        if not stopped:
-            self._log.critical(f"Daemon `{self.__class__.__name__}` did not stop within the timeout during disposal")
-        super()._dispose()
-
-    @property
-    def daemon_status(self) -> DaemonStatus:
-        return self._status
-
-    @property
-    def is_daemon_active(self) -> bool:
-        """Convenience property to check if the daemon is currently active: Starting or Running"""
-        return self._status == DaemonStatus.RUNNING or self._status == DaemonStatus.STARTING # or is faster than in
-
-    @property
-    def daemon_failure(self) -> object | None:
-        """Captures the last failure if any"""
-        return self._failure
-
-    def daemon_start(self) -> None:
-        with self._state_lock:
-            if self._status != DaemonStatus.STOPPED: return
-
-            self._status = DaemonStatus.STARTING
-            try:
-                self._do_start()
-                self._status = DaemonStatus.RUNNING
-            except Exception as e:
-                self._status = DaemonStatus.STOPPED
-                self._failure = e
-                self._log.critical(f"Daemon `{self.__class__.__name__}` failed to start with error: {e}", exc_info=True)
-                raise e
-
-
-    def daemon_signal_stop(self) -> None:
-        with self._state_lock:
-            if self._status != DaemonStatus.RUNNING and self._status != DaemonStatus.STARTING: return
-            try:
-                self._status = DaemonStatus.STOPPING
-                self._do_signal_stop()
-            except Exception as e:
-                self._log.critical(f"Daemon `{self.__class__.__name__}` failed to signal stop with error: {e}", exc_info=True)
-                raise e
-
-
-    def daemon_wait_for_stop(self, timeout_sec: float = 0) -> bool:
-        """
-        Blocking method to wait for the daemon to stop.
-        This method blocks until the daemon has fully stopped or until the specified timeout has elapsed.
-        The system calls this method during daemon disposal to ensure that the daemon has stopped before
-        proceeding with the disposal process. Consequently, the Daemon stop happens on application chassis shutdown
-        if the daemon has not been deterministically stopped and finalized by then.
-
-        Note: You should call this method from primary application control thread, such as main thread, to avoid
-        potential deadlocks. If you need asynchronous shutdown, call the `daemon_signal_stop` method and then monitor
-        the `daemon_status` property for the STOPPED status in a non-blocking way. If you have not called the
-        `daemon_signal_stop` method, then this method will signal the daemon to stop and then wait for stop to complete.
-
-
-        :param timeout_sec: Maximum time to wait for the daemon to stop, in seconds. If 0, waits indefinitely.
-        :return: True if the daemon stopped successfully within the timeout, False if the timeout was reached.
-        """
-
-        self.daemon_signal_stop() # Signal stop if not already signaled, this is idempotent and will do nothing
-                                  # if already signaled
-
-        if timeout_sec < 0 : timeout_sec = 0
-
-        with self._state_lock:
-            if self._status == DaemonStatus.STOPPED:
-                return True
-
-            try:
-                stopped = self._do_wait_for_stop(timeout_sec)
-                if stopped:
-                    self._status = DaemonStatus.STOPPED
-                return stopped
-            except Exception as e:
-                self._log.critical(f"Daemon `{self.__class__.__name__}` failed to wait for stop with error: {e}", exc_info=True)
-                raise e
-
-
-    @abstractmethod
-    def _do_start(self) -> None:
-        """
-        Abstract method to be implemented by subclasses to define the actual start logic of the daemon.
-        This method is called by `daemon_start` and should contain the logic to initiate the daemon's operation.
-
-        !!!ATTENTION: this method is called under a non-reentrant state lock
-        """
-        pass
-
-    @abstractmethod
-    def _do_signal_stop(self) -> None:
-        """
-        Abstract method to be implemented by subclasses to define the actual stop initiation logic of the daemon.
-        This method is called by `daemon_signal_stop` and should contain the logic to initiate the daemon's shutdown process.
-        May not block and should return immediately after signaling the stop process. The actual stop process may be
-        asynchronous
-
-        !!!ATTENTION: this method is called under a non-reentrant state lock
-        """
-        pass
-
-    @abstractmethod
-    def _do_wait_for_stop(self, timeout_sec: float) -> bool:
-        """
-        Abstract method to be implemented by subclasses to define the logic for waiting for the daemon to stop.
-        This method is called by `daemon_wait_for_stop` after signaling the daemon to stop and should contain the logic
-        to block until the daemon has fully stopped or until the specified timeout has elapsed.
-
-        !!!ATTENTION: this method is called under a non-reentrant state lock
-
-        :param timeout_sec: Maximum time to wait for the daemon to stop, in seconds. If 0, waits indefinitely.
-        :return: True if the daemon stopped successfully within the timeout, False if the timeout was reached.
-        """
-        pass
 
 
 
