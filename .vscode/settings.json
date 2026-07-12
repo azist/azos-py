@@ -13,7 +13,8 @@
         "Instrumentor",
         "isdefault",
         "oplog",
-        "setuptools"
+        "setuptools",
+        "startable"
     ],
     "workbench.tree.indent": 28,
     "files.eol": "\n",
