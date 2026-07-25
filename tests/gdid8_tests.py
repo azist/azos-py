@@ -44,8 +44,8 @@ def test_now_increasing():
     t2 = GDID8.now()
     assert t2 > t1
 
-def test_get_shard_path():
-    """Test shard path generation with boolean list of length 10."""
+def test_get_shard_hash():
+    """Test shard hash generation returning up to 10 bits."""
     authority = 0
 
     # 0b1010101010 = 682
@@ -55,19 +55,18 @@ def test_get_shard_path():
 
     gdid = GDID8.encode(authority, timestamp, counter)
 
-    path = GDID8.get_shard_path(gdid)
+    shard_hash = GDID8.get_shard_hash(gdid)
 
-    assert isinstance(path, list)
-    assert len(path) == 10
+    assert isinstance(shard_hash, int)
 
     # For every bit in first 10 bits, timestamp bit is 1-0 alternating, counter is 0-1 alternating
-    # XOR them -> 1^0 = 1. Therefore all bits should be 1 (True)
-    assert all(path)
+    # XOR them -> 1^0 = 1. Therefore all bits should be 1 (0b1111111111 = 1023)
+    assert shard_hash == 1023
 
     # If same
     gdid_same = GDID8.encode(authority, 682, 682)
-    path_same = GDID8.get_shard_path(gdid_same)
-    assert not any(path_same)  # XOR of same sequence is 0 -> all False
+    hash_same = GDID8.get_shard_hash(gdid_same)
+    assert hash_same == 0  # XOR of same sequence is 0
 
 def test_init_and_authority_property():
     """Test instance construction and authority property mapping."""
@@ -121,3 +120,26 @@ if __name__ == "__main__":
     for i in range(10):
         gdid = g.generate()
         print(f"Generated GDID8: {gdid}  = {gdid:b} = {gdid.to_bytes(8, byteorder='big').hex('_')}")
+
+def test_get_shard_hash_authority_weaving():
+    """Test that authority is woven into the first 4 bits of the shard hash."""
+    timestamp = 0
+    counter = 0
+    authority1 = 11  # 0b1011 -> LSB to MSB: 1, 1, 0, 1
+
+    gdid1 = GDID8.encode(authority1, timestamp, counter)
+    hash1 = GDID8.get_shard_hash(gdid1)
+
+    # timestamp & counter are 0, so hash is just authority up to 4 bits
+    assert hash1 == 11  # 0b1011
+
+    timestamp2 = 682  # 0b1010101010
+    counter2 = 341    # 0b0101010101
+    authority2 = 5    # 0b0101 -> LSB to MSB: 1, 0, 1, 0
+
+    gdid2 = GDID8.encode(authority2, timestamp2, counter2)
+    hash2 = GDID8.get_shard_hash(gdid2)
+
+    # bits 9-4: all 1s. bits 3-0: 1010 = 10.
+    # 0b1111111010 = 1018
+    assert hash2 == 1018

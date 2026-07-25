@@ -164,17 +164,20 @@ class GDID8:
 
 
     @staticmethod
-    def get_shard_path(gdid8: int) -> list[bool]:
+    def get_shard_hash(gdid8: int) -> int:
         """
         WARNING: Any change to this function will affect the shard mapping logic and cause data loss.
         DO not change anything unless you fully understand the implications. DO NOT RELY on LLM!!!
 
-        Determines the shard path for a given GDID8 value.
-        Shard path is a form of consistent hashing that determines the path to a specific shard in a shard tree based on the GDID8 value.
-        By navigating the shard tree according to the boolean values in the shard path list, one can deterministically get the
+        Determines the consistent shard hash for a given GDID8 value.
+        Shard hash is a form of consistent hashing that determines the path to a specific shard.
+        For example we can implement a consistent shard tree in a distributed database, where each node in the tree
+        represents a shard, and the path to each shard is determined by the shard hash derived from the GDID8 value.
+        By navigating the shard tree according to the bit values in the shard hash integer, one can deterministically get the
         specific shard to which the GDID8 value maps.
 
-        The path is determined by XORing first 10 bits of timestamp and the counter starting from the lowest bit.
+        The hash is determined by XORing first 10 bits of timestamp and the counter with interwoven 4 bits from authority
+        starting from the lowest bit.
         This is done on purpose to create a maximum sharding balance by ensuring that both the timestamp and counter
         contribute to the shard path, thereby distributing GDID8 values more evenly across shards.
         For example, in case of infrequent generation the counter will always be zero. On the other hand if we generate
@@ -184,18 +187,21 @@ class GDID8:
         The function allows to extend to 2 ^ 10 = 1024 different shard paths
 
         Args:
-            gdid8 (int): The GDID8 value to determine the shard path for.
+            gdid8 (int): The GDID8 value to determine the shard hash for.
 
         Returns:
-            list[bool]: A list of booleans representing the shard path - navigation path in consistent shard tree
+            int: An integer of up to 10 bits representing the shard hash - navigation path in consistent shard tree
         """
-        _auth, timestamp, counter = GDID8.decode(gdid8)
-        result = []
+        auth, timestamp, counter = GDID8.decode(gdid8)
+        result = 0
         for i in range(10):
-            bit = bool((timestamp & 1) ^ (counter & 1))
-            result.append(bit)
+            bit = (timestamp & 1) ^ (counter & 1)
             timestamp >>= 1
             counter >>= 1
+            if i < 4: # prevent clock alignment hot spots
+                bit ^= (auth & 1)
+                auth >>= 1
+            result |= (bit << i)
         return result
 
 
