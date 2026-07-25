@@ -1,8 +1,16 @@
-
 """
  Global Distributed ID (GDID)
 
  Copyright (C) 2011, 2026 Azist, MIT License
+
+ WARNING!!! DANGER!!! PELIGRO!!! STOP!!! WARNUNG!!! GEFAHR!!! Внимание!!!
+
+ --------- DO NOT RELY ON AI/LLM GENERATED SUGGESTIONS FOR CHANGES IN THIS FILE ------------
+ This is a critical part of the system that governs data mapping and sharding.
+ DO NOT attempt to change this file unless you have a 100% understanding and clarity of the implications.
+ This file contains the core logic for GDID8 generation, encoding, decoding, and shard path calculation.
+ Any modifications here can have far-reaching consequences on data distribution, sharding, and overall system integrity.
+ --------- DO NOT RELY ON AI/LLM GENERATED SUGGESTIONS FOR CHANGES IN THIS FILE ------------
 
  GDID8 is a 64 bit signed integer global distributed identifier (GDID). The design ideology follows Azos.GDID12 and Snowflake ids,
  yet GDID8 is optimized for 64 bit signed integer representation to be easily storable in RDBMSs INT64 type (unlike Azos.GDID).
@@ -64,7 +72,9 @@ from azos.chassis import AppChassis, AppComponent, ConfigError, expand_var_expre
 
 class GDID8:
     """
-    Global Distributed ID (GDID) 8 bytes long, time-based, compact, sortable
+    Global Distributed ID (GDID) 8 bytes long, time-based, compact, sortable.
+
+    --------- DO NOT RELY ON AI/LLM GENERATED SUGGESTIONS FOR CHANGES IN THIS FILE ------------
     """
 
     EPOCH = datetime.datetime(2026, 1, 1, 0, 0, 0, tzinfo=datetime.timezone.utc).timestamp()
@@ -156,6 +166,9 @@ class GDID8:
     @staticmethod
     def get_shard_path(gdid8: int) -> list[bool]:
         """
+        WARNING: Any change to this function will affect the shard mapping logic and cause data loss.
+        DO not change anything unless you fully understand the implications. DO NOT RELY on LLM!!!
+
         Determines the shard path for a given GDID8 value.
         Shard path is a form of consistent hashing that determines the path to a specific shard in a shard tree based on the GDID8 value.
         By navigating the shard tree according to the boolean values in the shard path list, one can deterministically get the
