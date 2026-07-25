@@ -39,7 +39,7 @@
     Probably not suitable for IoT samples, global telemetry, global call ids. etc..
 
     Example, within 1 day, this ID can generate only 86,400 * 1000 * 4,096 = 353,894,400,000 unique IDs per worker.
-    If you have 256 workers, that is 90,529,228,800,000 unique IDs per day.
+    If you have 256 workers, that is 90,596,966,400,000 unique IDs per day.
 
     While the number looks very large, it might not be sufficiently large for global applications such as decentralized
     global peer-to-peer networks, telemetry, IoT, etc.
@@ -70,7 +70,7 @@ class GDID8:
     EPOCH = datetime.datetime(2026, 1, 1, 0, 0, 0, tzinfo=datetime.timezone.utc).timestamp()
     """
     The epoch for GDID8 is set to January 1, 2026,
-    which is the starting point for the timestamp component of the GDID8.
+    which is the starting point for the timestamp component of the GDID8 covering to 2304 (278 years into the future).
     This epoch allows for a 43-bit timestamp to represent milliseconds since this date,
     providing a range of approximately 278 years into the future.
 
@@ -87,31 +87,33 @@ class GDID8:
     MAX_COUNTER = (1 << 12) - 1
     """Maximum value for the 12-bit counter"""
 
-    _LAST_NOW = 0;
+    _LAST_NOW = 0
     _CLOCK_DRIFT_ABORT_MS = 7500
+    _TIME_LOCK = threading.Lock()
 
     @staticmethod
     def now() -> int:
         """
         Gets the current timestamp in milliseconds since the GDID8 epoch.
         This now() never goes back in time, even if the system clock is adjusted backwards,
-        because it uses time.monotonic() for measuring elapsed time.
+        because it adjust forward up to maximum clock drift
         """
 
-        while True:
-            result = int((time.time() - GDID8.EPOCH) * 1000)
+        with GDID8._TIME_LOCK:
+            while True:
+                result = int((time.time() - GDID8.EPOCH) * 1000)
 
-            # If the system clock was adjusted backwards, we wait until it catches up to the last known timestamp.
-            if result < GDID8._LAST_NOW:
-                if GDID8._LAST_NOW - result > GDID8._CLOCK_DRIFT_ABORT_MS:
-                    raise RuntimeError(f"GDID8.now() System clock is too far behind the last known timestamp: {GDID8._LAST_NOW} vs {result}")
+                # If the system clock was adjusted backwards, we wait until it catches up to the last known timestamp.
+                if result < GDID8._LAST_NOW:
+                    if GDID8._LAST_NOW - result > GDID8._CLOCK_DRIFT_ABORT_MS:
+                        raise RuntimeError(f"GDID8.now() System clock is too far behind the last known timestamp: {GDID8._LAST_NOW} vs {result}")
 
-                time.sleep(0.025)  # Sleep for 25 milliseconds (compatible with Windows as well)
-            else:
-                break
+                    time.sleep(0.025)  # Sleep for 25 milliseconds (compatible with Windows as well)
+                else:
+                    break
 
-        GDID8._LAST_NOW = result
-        return result
+            GDID8._LAST_NOW = result
+            return result
 
     @staticmethod
     def encode(authority: int, timestamp: int, counter: int) -> int:
@@ -132,6 +134,55 @@ class GDID8:
 
         gdid8 = (timestamp << 20) | (authority << 12) | counter
         return gdid8
+
+
+    @staticmethod
+    def decode(gdid8: int) -> tuple:
+        """
+        Decodes a GDID8 value into its constituent authority, timestamp, and counter components.
+
+        Args:
+            gdid8 (int): The GDID8 value to decode.
+
+        Returns:
+            tuple: A tuple containing (authority, timestamp, counter).
+        """
+        authority = (gdid8 >> 12) & GDID8.MAX_AUTHORITY
+        timestamp = (gdid8 >> 20) & GDID8.MAX_TIMESTAMP
+        counter = gdid8 & GDID8.MAX_COUNTER
+        return authority, timestamp, counter
+
+
+    @staticmethod
+    def get_shard_path(gdid8: int) -> list[bool]:
+        """
+        Determines the shard path for a given GDID8 value.
+        Shard path is a form of consistent hashing that determines the path to a specific shard in a shard tree based on the GDID8 value.
+        By navigating the shard tree according to the boolean values in the shard path list, one can deterministically get the
+        specific shard to which the GDID8 value maps.
+
+        The path is determined by XORing first 8 bits of timestamp and the counter starting from the lowest bit.
+        This is done on purpose to create a maximum sharding balance by ensuring that both the timestamp and counter
+        contribute to the shard path, thereby distributing GDID8 values more evenly across shards.
+        For example, in case of infrequent generation the counter will always be zero. On the other hand if we generate
+        many records within the same millisecond, the counter will not be zero, thus both the timestamp and counter
+        contribute to the shard path, ensuring a more balanced distribution across shards.
+
+
+        Args:
+            gdid8 (int): The GDID8 value to determine the shard path for.
+
+        Returns:
+            list[bool]: A list of booleans representing the shard path - navigation path in consistent shard tree
+        """
+        _auth, timestamp, counter = GDID8.decode(gdid8)
+        result = []
+        for i in range(8):
+            bit = (timestamp & 1) ^ (counter & 1)
+            result.append(bit == 1)
+            timestamp >>= 1
+            counter >>= 1
+        return result
 
 
     def __init__(self, authority: int):
@@ -170,7 +221,7 @@ class GDID8:
                         ts = GDID8.now()
                     self._counter = 0
             else:
-                self._counter = 0
+                self._counter = 0 # start over
 
             self._last_timestamp = ts
             return GDID8.encode(self._authority, self._last_timestamp, self._counter)
@@ -238,7 +289,7 @@ class GDIDGenerator(AppComponent):
         """
         with self._lock:
             seq = self._generators.get(name)
-            if seq is None:
+            if seq is None: # Lazy create it
                 seq = GDID8(authority=self._authority)
                 self._generators[name] = seq
 
