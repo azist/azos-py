@@ -45,27 +45,27 @@ def test_now_increasing():
     assert t2 > t1
 
 def test_get_shard_path():
-    """Test shard path generation with boolean list of length 8."""
+    """Test shard path generation with boolean list of length 10."""
     authority = 0
 
-    # 0b10101010 = 170
-    # 0b01010101 = 85
-    timestamp = 170
-    counter = 85
+    # 0b1010101010 = 682
+    # 0b0101010101 = 341
+    timestamp = 682
+    counter = 341
 
     gdid = GDID8.encode(authority, timestamp, counter)
 
     path = GDID8.get_shard_path(gdid)
 
     assert isinstance(path, list)
-    assert len(path) == 8
+    assert len(path) == 10
 
-    # For every bit in first 8 bits, timestamp bit is 1-0 alternating, counter is 0-1 alternating
+    # For every bit in first 10 bits, timestamp bit is 1-0 alternating, counter is 0-1 alternating
     # XOR them -> 1^0 = 1. Therefore all bits should be 1 (True)
     assert all(path)
 
     # If same
-    gdid_same = GDID8.encode(authority, 170, 170)
+    gdid_same = GDID8.encode(authority, 682, 682)
     path_same = GDID8.get_shard_path(gdid_same)
     assert not any(path_same)  # XOR of same sequence is 0 -> all False
 

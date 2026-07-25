@@ -161,13 +161,14 @@ class GDID8:
         By navigating the shard tree according to the boolean values in the shard path list, one can deterministically get the
         specific shard to which the GDID8 value maps.
 
-        The path is determined by XORing first 8 bits of timestamp and the counter starting from the lowest bit.
+        The path is determined by XORing first 10 bits of timestamp and the counter starting from the lowest bit.
         This is done on purpose to create a maximum sharding balance by ensuring that both the timestamp and counter
         contribute to the shard path, thereby distributing GDID8 values more evenly across shards.
         For example, in case of infrequent generation the counter will always be zero. On the other hand if we generate
         many records within the same millisecond, the counter will not be zero, thus both the timestamp and counter
         contribute to the shard path, ensuring a more balanced distribution across shards.
 
+        The function allows to extend to 2 ^ 10 = 1024 different shard paths
 
         Args:
             gdid8 (int): The GDID8 value to determine the shard path for.
@@ -177,9 +178,9 @@ class GDID8:
         """
         _auth, timestamp, counter = GDID8.decode(gdid8)
         result = []
-        for i in range(8):
-            bit = (timestamp & 1) ^ (counter & 1)
-            result.append(bit == 1)
+        for i in range(10):
+            bit = bool((timestamp & 1) ^ (counter & 1))
+            result.append(bit)
             timestamp >>= 1
             counter >>= 1
         return result
