@@ -6,7 +6,6 @@ Copyright (C) 2011 - 2026 Azist, MIT License
 
 
 from typing import Optional
-from uuid import MAX
 
 from azos.chassis import AppChassis, AppComponent, ConfigError
 from azos.descriptor import Descriptor
