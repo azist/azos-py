@@ -176,7 +176,7 @@ class GDID8:
         By navigating the shard tree according to the bit values in the shard hash integer, one can deterministically get the
         specific shard to which the GDID8 value maps.
 
-        The hash is determined by XORing first 10 bits of timestamp and the counter with interwoven 4 bits from authority
+        The hash is determined by XORing first lowest 10 bits of timestamp and the counter with interwoven 4 bits from authority
         starting from the lowest bit.
         This is done on purpose to create a maximum sharding balance by ensuring that both the timestamp and counter
         contribute to the shard path, thereby distributing GDID8 values more evenly across shards.
@@ -190,7 +190,9 @@ class GDID8:
             gdid8 (int): The GDID8 value to determine the shard hash for.
 
         Returns:
-            int: An integer of up to 10 bits representing the shard hash - navigation path in consistent shard tree
+            int: An integer of 10 bits representing the shard hash - navigation path in consistent shard tree.
+                 The lower bits represent the fastest changing part of the shard hash, determining the initial steps in
+                 the navigation path within the consistent shard tree.
         """
         auth, timestamp, counter = GDID8.decode(gdid8)
         result = 0
