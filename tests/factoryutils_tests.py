@@ -10,13 +10,13 @@ from azos.chassis import AppChassis, AppComponent
 
 class IService:
     """Mock service contract."""
-    def execute(self) -> str:
+    def execute(self) -> str: # type: ignore
         """Execute the service."""
         pass
 
 class ILog:
     """Mock logger contract."""
-    def write(self, msg: str) -> str:
+    def write(self, msg: str) -> str: # type: ignore
         """Write a message."""
         pass
 
