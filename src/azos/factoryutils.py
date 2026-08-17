@@ -12,11 +12,15 @@ from azos.descriptor import Descriptor
 
 T = TypeVar("T")
 
+# maps string name to class type
 _registry: Dict[str, Type] = {}
 
 
 def register(name: str | None = None) -> Callable[[Type[T]], Type[T]]:
-    """Decorator to register a class to the factory.
+    """
+    Decorator to register a class to the factory by name, thus allowing factory to instantiate
+    class instances by string name. The decorator can be used with or without a name argument.
+    If no name is provided, the class's name is used.
 
     Usage:
         @register("MyNamespace.MyLogProvider")
