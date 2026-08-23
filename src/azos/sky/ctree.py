@@ -107,7 +107,7 @@ class ConfigTree(AsyncDaemon):
 
     SECONDS_PER_DAY: int = 24 * 60 * 60
 
-    def __init__(self, chassis: AppChassis, director: AppComponent, config: Descriptor):
+    def __init__(self, chassis: AppChassis, director: AppComponent | None, config: Descriptor):
         super().__init__(chassis, director=director)
 
         self._cache = LimitedCache(
@@ -152,6 +152,10 @@ class ConfigTree(AsyncDaemon):
         :param cache: Whether to use the cache for this navigation.
         :return: The configuration tree node at the specified path.
         """
+
+        if not self.is_daemon_active:
+            raise RuntimeError("ConfigTree daemon is not active")
+
         if path is None:
             raise ValueError("Path cannot be None")
 
@@ -210,7 +214,7 @@ class ConfigTree(AsyncDaemon):
         if path == "/":
             return ConfigTreeNode(path,
                                   level_config=fetched[0].seal(),
-                                  config=Descriptor({}, self.chassis).seal(),
+                                  config=fetched[0].clone().seal(),
                                   props=fetched[1].seal())
 
         parts = path.strip("/").split("/")[:-1]
