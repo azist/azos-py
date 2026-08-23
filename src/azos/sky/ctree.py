@@ -34,7 +34,10 @@ from azos.daemons import AsyncDaemon
 from azos.descriptor import Descriptor
 from azos.factoryutils import make_component_from_descriptor
 
+
 _NOT_FOUND_SENTINEL = object()
+
+
 
 @dataclass(frozen=True, slots=True)
 class ConfigTreeNode:
@@ -51,7 +54,6 @@ class ConfigTreeNode:
 
     props: Descriptor
     """The properties descriptor specific to this node."""
-
 
 
 

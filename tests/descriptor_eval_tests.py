@@ -590,3 +590,25 @@ class TestScopeIsolation:
         """Log sink Descriptor with scope=root correctly expands $(paths/logs)."""
         s = sink_desc(cfg, "app-file")
         assert "$(paths/logs)" not in s.as_str("path") # type: ignore
+
+def test_eval_os_environment():
+    import os
+    from azos.descriptor import Descriptor
+    
+    os.environ["AZOS_PY_TEST_123"] = "secret_value"
+    os.environ["AZOS_PY_TEST_NUM"] = "999"
+    
+    try:
+        data = {
+            "key1": "Prefix-$(AZOS_PY_TEST_123)-Suffix",
+            "key2": "$(AZOS_PY_TEST_NUM)"
+        }
+        d = Descriptor(data)
+        
+        assert d.as_str("key1") == "Prefix-secret_value-Suffix"
+        assert d.as_int("key2") == 999
+        # If it doesn't exist, by default it doesn't blow up but leaves the token or evaluates per rules
+        
+    finally:
+        if "AZOS_PY_TEST_123" in os.environ: del os.environ["AZOS_PY_TEST_123"]
+        if "AZOS_PY_TEST_NUM" in os.environ: del os.environ["AZOS_PY_TEST_NUM"]
