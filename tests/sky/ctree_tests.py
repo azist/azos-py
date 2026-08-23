@@ -108,3 +108,38 @@ def test_config_tree_navigation():
             app.dispose()
 
     asyncio.run(_do_test())
+
+
+def test_config_tree_navigation_path_normalization():
+    async def _do_test():
+        app = AppChassis(app_id="testapp", ep_path=__file__)
+
+        try:
+            config = Descriptor({
+                "type": "MockTreeSource",
+            })
+
+            tree = ConfigTree(app, None, config)
+
+            async with app:
+                paths_to_test = [
+                    "a",
+                    "a/",
+                    "a//",
+                    "a/ /",
+                    "a  /    /",
+                    "/ / / / / a",
+                    "        /       /a"
+                ]
+
+                # All paths should normalize to "/a" and resolve the a_node successfully
+                for p in paths_to_test:
+                    node = await tree.navigate(p)
+                    assert node is not None, f"Path '{p}' failed to resolve"
+                    assert node.path == "/a", f"Path '{p}' resolved to wrong path '{node.path}'"
+                    assert node.props.as_str("desc") == "node a"
+                    assert node.level_config.as_int("timeout") == 20
+        finally:
+            app.dispose()
+
+    asyncio.run(_do_test())

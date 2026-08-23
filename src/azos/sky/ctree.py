@@ -163,8 +163,8 @@ class ConfigTree(AsyncDaemon):
         if not path:
             raise ValueError("Path cannot be empty")
 
-        if path != "/":
-            path = "/" + path.strip("/")
+        parts = [p.strip() for p in path.split("/") if p.strip()]
+        path = "/" + "/".join(parts) if parts else "/"
 
         if asof <= 0:
             asof = time.time()
@@ -217,15 +217,16 @@ class ConfigTree(AsyncDaemon):
                                   config=fetched[0].clone().seal(),
                                   props=fetched[1].seal())
 
-        parts = path.strip("/").split("/")[:-1]
-        parent_path = "/" + "/".join(parts) if parts else "/"
+        # chop rightmost path segment to get parent
+        idx = path.rfind("/")
+        parent_path = "/" if idx == 0 else path[:idx]
 
         parent = await self._navigate(parent_path, asof, cache) if parent_path else None
 
         if parent is None:
             return None
 
-        # Clone parent's config to avoid mutating shared cached nodes
+        # clone parent's config to avoid mutating shared cached nodes
         merged_config = parent.config.clone()
         merged_config.override_by(fetched[0])
 
