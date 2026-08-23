@@ -1,8 +1,13 @@
 """
-Factory Utilities for instantiating objects by name.
+Factory Utilities is used to dynamically instantiate objects by their registered string names, allowing for flexible
+and decoupled well-known object creation from config Descriptors.
+
+You register your classes with the factory using the `@register` decorator, optionally providing a string name.
+If no name is provided, the class's name is used as the registration key. Later, the system reads class names from
+configuration Descriptors and uses the factory to instantiate the corresponding objects.
+
 
 Copyright (C) 2011, 2026 Azist, MIT License
-
 """
 
 from typing import Type, TypeVar, Dict, Any, Callable
@@ -12,11 +17,15 @@ from azos.descriptor import Descriptor
 
 T = TypeVar("T")
 
+# maps string name to class type
 _registry: Dict[str, Type] = {}
 
 
 def register(name: str | None = None) -> Callable[[Type[T]], Type[T]]:
-    """Decorator to register a class to the factory.
+    """
+    Decorator to register a class to the factory by name, thus allowing factory to instantiate
+    class instances by string name. The decorator can be used with or without a name argument.
+    If no name is provided, the class's name is used.
 
     Usage:
         @register("MyNamespace.MyLogProvider")
@@ -54,12 +63,13 @@ def make(expected_type: Type[T], type_name: str, *args: Any, **kwargs: Any) -> T
     if not target_cls:
         raise TypeError(f"Type '{type_name}' could not be resolved as it is not registered.")
 
-    # Ensure the target class is a subtype of expected_type
+    # Ensure the target class is a subtype of expected_type BEFORE construction
     if not issubclass(target_cls, expected_type):
         raise TypeError(
             f"Registered type '{target_cls.__name__}' is not a subtype of '{expected_type.__name__}'"
         )
 
+    #construct the type instance
     return target_cls(*args, **kwargs)
 
 
@@ -97,7 +107,8 @@ def make_component_from_descriptor(expected_type: Type[T],
     This function is specifically designed for components that require a chassis and an optional director.
 
     ```python
-    # Example usage:
+    # Example usage given component:
+    #    __init__ signature: __init__(self, chassis: AppChassis, director: AppComponent | None, config: Descriptor)
     descriptor = Descriptor(type="MyComponent", param1="value", param2=42)
     instance = make_component_from_descriptor(MyBaseComponentClass, descriptor, chassis=my_chassis, director=my_director)
     ```
