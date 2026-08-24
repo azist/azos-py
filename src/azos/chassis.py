@@ -12,19 +12,21 @@ import logging
 import os
 import atexit
 import re
-import threading
 import uuid
 import platform
+
 from abc import abstractmethod
 from enum import Enum
 from typing import (Any, Protocol, Sequence, Type, Dict, List, Optional,
-                    Callable, Tuple, TypeVar, override, runtime_checkable)
+                    Callable, Tuple, TypeVar, override, runtime_checkable, TYPE_CHECKING)
 from pathlib import Path
 from configparser import ConfigParser
 
 from azos.oop import DisposableObject
 from azos.stock_content import loader
 
+if TYPE_CHECKING:
+    from azos.descriptor import Descriptor
 
 
 ENV_ENVIRONMENT_NAME_VAR = "SKY_ENVIRONMENT"
@@ -368,6 +370,22 @@ class Injector:
         return chassis.deps.get(self.target_type, self.target_name)
 
 
+class ChassisDescriptorFactory(Protocol):
+    """
+    Protocol for a factory that creates application chassis descriptors.
+    Implementers should provide a callable that takes the necessary parameters
+    and returns a `Descriptor` instance.
+    """
+    def __call__(self,
+                 instance_id: str,
+                 entry_point_path: str,
+                 app_id: str,
+                 environment: str,
+                 host: str,
+                 config: ConfigParser) -> "Descriptor":
+        ...
+
+
 class AppChassis(DisposableObject):
     """
     Application chassis pattern provides global boilerplate for app instance identification,
@@ -416,7 +434,8 @@ class AppChassis(DisposableObject):
                  app_id: str,
                  ep_path: str,
                  environment_name: str | None = None,
-                 config: ConfigParser | None = None):
+                 config: ConfigParser | None = None,
+                 descriptor_factory: ChassisDescriptorFactory | None = None):
         existing = AppChassis.__s_current
         if existing is not None:
             raise RuntimeError(f"AppChassis({existing.app}) instance is already allocated. Dispose it first")
@@ -433,6 +452,9 @@ class AppChassis(DisposableObject):
         self._deps = DIContainer()
         # Must be after _env
         self._config = self._load_config(config) # use the supplied one or load co-located file
+
+        # Must be after _config is loaded
+        self._descriptor = self._load_descriptor(descriptor_factory)
 
         if AppChassis.__s_default is None:
             AppChassis.__s_default = self
@@ -548,6 +570,31 @@ class AppChassis(DisposableObject):
         return config
 
 
+    def _load_descriptor(self, descriptor_factory: ChassisDescriptorFactory | None) -> "Descriptor":
+        """
+        Load the application descriptor using the provided descriptor factory.
+        If no descriptor factory is provided, a default empty descriptor is created and sealed.
+        """
+        from azos.descriptor import Descriptor
+
+        if descriptor_factory is None:
+            result = Descriptor({}, chassis = self)
+            result.seal()
+            return result
+
+        result = descriptor_factory(
+            instance_id=self._instance_id,
+            entry_point_path=self._entry_point_path,
+            app_id=self._app,
+            environment=self._environment,
+            config=self._config,
+            host=self._host
+        )
+        result.seal()
+
+        return result
+
+
     @property
     def is_default(self) -> bool:
         """Return True if this is a default Application instance"""
@@ -558,6 +605,12 @@ class AppChassis(DisposableObject):
     def config(self) -> ConfigParser:
         """Returns ConfigParser object for this app. It is always present even if app does not have a config file"""
         return self._config
+
+
+    @property
+    def descriptor(self) -> "Descriptor":
+        """Returns the root application configuration descriptor for this chassis"""
+        return self._descriptor
 
 
     @property
