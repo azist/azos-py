@@ -39,6 +39,7 @@ dependencies = [
     "opentelemetry-semantic-conventions==0.62b1",
     "opentelemetry-util-http==0.62b1",
     "opentelemetry-exporter-otlp-proto-common==1.41.1",
+    "asyncpg>=0.31.0",
 ]
 
 # --------------------------------------------------------
