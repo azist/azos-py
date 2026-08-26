@@ -590,6 +590,7 @@ class AppChassis(DisposableObject):
             config=self._config,
             host=self._host
         )
+        result._chassis = self
         result.seal()
 
         return result
