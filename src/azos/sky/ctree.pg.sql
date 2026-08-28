@@ -28,15 +28,18 @@
 CREATE DATABASE :"db_name"
     WITH
     ENCODING = 'UTF8'
-    -- 'C' collation provides strictly case-sensitive binary string comparison and maximum performance
-    LC_COLLATE = 'C'
-    LC_CTYPE = 'C';
+    LC_COLLATE = 'en_US.utf8'
+    LC_CTYPE = 'en_US.utf8'
+    LOCALE_PROVIDER = 'libc'
+    TABLESPACE = pg_default
+    CONNECTION LIMIT = -1
+    IS_TEMPLATE = False;
 
 
 -- WARNING: DO NOT use `timestamptz` type, it converts dates silently and leads to hard-to find bugs
 -- In THIS system design we treat all system dates as UTC timestamps only.
 -- Do not convert anything automatically
-ALTER DATABASE :"db_name" SET TIMEZONE TO 'UTC';
+ALTER DATABASE :"db_name" SET "TimeZone" TO 'UTC';
 
 -- Connect to the new database before creating tables (psql syntax)
 \c :"db_name"
