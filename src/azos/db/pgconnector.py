@@ -37,6 +37,7 @@ class PgSqlCtreeChassisDescriptorFactory(ChassisDescriptorFactory):
             database = config.get(CONFIG_SECTION, "database", fallback=None)
             user = config.get(CONFIG_SECTION, "user", fallback=None)
             password = config.get(CONFIG_SECTION, "password", fallback=None)
+            print(f"Connecting to PgSQL with url={url}, database={database}, user={user}")
             return await asyncpg.connect(dsn=url, database=database, user=user, password=password)
         except Exception as e:
             raise AzosError(
@@ -67,10 +68,11 @@ class PgSqlCtreeChassisDescriptorFactory(ChassisDescriptorFactory):
 
             import time
             import json
-            from datetime import datetime, timezone
+            from datetime import datetime
 
             # Get current time as UTC timestamp for "as of" queries
-            asof_utc = datetime.fromtimestamp(time.time(), tz=timezone.utc)
+            # Note: using naive datetime to match PostgreSQL 'timestamp' type (not 'timestamptz')
+            asof_utc = datetime.fromtimestamp(time.time())
 
             # Build the list of paths to fetch in order
             paths = [
