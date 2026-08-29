@@ -5,6 +5,9 @@ Copyright (C) 2011 - 2026 Azist, MIT License
 """
 
 from typing import override
+import time
+import json
+from datetime import datetime
 
 import asyncio
 import asyncpg
@@ -37,7 +40,7 @@ class PgSqlCtreeChassisDescriptorFactory(ChassisDescriptorFactory):
             database = config.get(CONFIG_SECTION, "database", fallback=None)
             user = config.get(CONFIG_SECTION, "user", fallback=None)
             password = config.get(CONFIG_SECTION, "password", fallback=None)
-            print(f"Connecting to PgSQL with url={url}, database={database}, user={user}")
+            #### print(f"Connecting to PgSQL with url={url}, database={database}, user={user}")
             return await asyncpg.connect(dsn=url, database=database, user=user, password=password)
         except Exception as e:
             raise AzosError(
@@ -66,9 +69,6 @@ class PgSqlCtreeChassisDescriptorFactory(ChassisDescriptorFactory):
             # we then need to override `config` Descriptor from top to bottom and return the final Descriptor.
             # You can hint how it is done from ../sky/ctree.py
 
-            import time
-            import json
-            from datetime import datetime
 
             # Get current time as UTC timestamp for "as of" queries
             # Note: using naive datetime to match PostgreSQL 'timestamp' type (not 'timestamptz')
