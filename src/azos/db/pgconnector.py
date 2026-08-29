@@ -37,11 +37,19 @@ class PgSqlCtreeChassisDescriptorFactory(ChassisDescriptorFactory):
     async def acquire_connection(self, environment: str, config: ConfigParser) -> asyncpg.Connection:
         try:
             url = config.get(CONFIG_SECTION, "url", fallback=None)
-            database = config.get(CONFIG_SECTION, "database", fallback=None)
-            user = config.get(CONFIG_SECTION, "user", fallback=None)
-            password = config.get(CONFIG_SECTION, "password", fallback=None)
-            #### print(f"Connecting to PgSQL with url={url}, database={database}, user={user}")
-            return await asyncpg.connect(dsn=url, database=database, user=user, password=password)
+
+            # If no URL provided, build it from individual components
+            if not url:
+                database = config.get(CONFIG_SECTION, "database", fallback=None)
+                user = config.get(CONFIG_SECTION, "user", fallback=None)
+                password = config.get(CONFIG_SECTION, "password", fallback=None)
+                host = config.get(CONFIG_SECTION, "host", fallback="127.0.0.1")
+                port = config.get(CONFIG_SECTION, "port", fallback="5432")
+
+                url = f"postgresql://{user}:{password}@{host}:{port}/{database}"
+
+            # Pass only DSN, avoiding parameter conflicts
+            return await asyncpg.connect(dsn=url)
         except Exception as e:
             raise AzosError(
                 message=f"Unable to establish PgSql connection to ctree db as specified in `[{CONFIG_SECTION}]`",
