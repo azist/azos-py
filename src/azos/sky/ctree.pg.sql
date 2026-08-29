@@ -7,7 +7,7 @@
 -- Copyright (C) 2020 - 2026 Azist, MIT License
 -- -------------------------------------------------------------------------
 -- call it like so:
---     psql -v db_name=my_configured_db -f src/azos/sky/ctree.pg.sql
+--   psql -h localhost -U sysdba -v db_name=sga_ctree -f src/azos/sky/ctree.pg.sql
 -- -------------------------------------------------------------------------
 
 -- -------------------------------------------------------------------------

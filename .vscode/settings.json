@@ -13,11 +13,13 @@
         "ctree",
         "evars",
         "factoryutils",
+        "fetchrow",
         "finalizer",
         "GDID",
         "Instrumentor",
         "isdefault",
         "oplog",
+        "pgconnector",
         "setuptools",
         "startable"
     ],

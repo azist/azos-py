@@ -4,10 +4,156 @@ PostgreSQL database connector providing connection management for the applicatio
 Copyright (C) 2011 - 2026 Azist, MIT License
 """
 
+from typing import override
+
+import asyncio
 import asyncpg
 
-from azos.chassis import AppChassis, AppComponent
+from configparser import ConfigParser
+
+from azos.chassis import AppChassis, AppComponent, ChassisDescriptorFactory
 from azos.descriptor import Descriptor
+from azos.exceptions import AzosError
+
+
+CONFIG_SECTION = "pg-sql-chassis"
+
+
+class PgSqlCtreeChassisDescriptorFactory(ChassisDescriptorFactory):
+    """
+    Fetches application chassis descriptors by fetching the app config from PgSQL ctree
+    bypassing complex ctree mechanics which rely on loaded modules.
+
+    You have to have a running PgSQL instance and application configured under
+    `/boot/app/{app_id}` path in the tree.
+
+    Cluster boots central `gov` service using this bootloader, then subsequent services obtain full
+    configuration from the `gov` service via a network call
+    """
+
+    async def acquire_connection(self, environment: str, config: ConfigParser) -> asyncpg.Connection:
+        try:
+            url = config.get(CONFIG_SECTION, "url", fallback=None)
+            database = config.get(CONFIG_SECTION, "database", fallback=None)
+            user = config.get(CONFIG_SECTION, "user", fallback=None)
+            password = config.get(CONFIG_SECTION, "password", fallback=None)
+            return await asyncpg.connect(dsn=url, database=database, user=user, password=password)
+        except Exception as e:
+            raise AzosError(
+                message=f"Unable to establish PgSql connection to ctree db as specified in `[{CONFIG_SECTION}]`",
+                topic="pgconnector",
+                frm=f"acquire_connection(env=`{environment}`, db=`{config.get(CONFIG_SECTION, 'database', fallback='?')}`)",
+                src=0
+            ) from e
+
+
+    async def doWork(self,
+                     instance_id: str,
+                     entry_point_path: str,
+                     app_id: str,
+                     environment: str,
+                     host: str,
+                     config: ConfigParser) -> "Descriptor":
+
+        cnn = await self.acquire_connection(environment, config)
+        try:
+            # we will read the config using schema in ../sky/ctree.pg.sql
+
+            # we need to fetch the following paths: in sequence
+            # `/` root, then `/boot`, `/boot/app`, `/boot/app/{app_id}`
+            # so we need to do 4 reads, all AS OF UTC NOW (at the time of call).
+            # we then need to override `config` Descriptor from top to bottom and return the final Descriptor.
+            # You can hint how it is done from ../sky/ctree.py
+
+            import time
+            import json
+            from datetime import datetime, timezone
+
+            # Get current time as UTC timestamp for "as of" queries
+            asof_utc = datetime.fromtimestamp(time.time(), tz=timezone.utc)
+
+            # Build the list of paths to fetch in order
+            paths = [
+                "/",
+                "/boot",
+                "/boot/app",
+                f"/boot/app/{app_id}"
+            ]
+
+            # Start with empty descriptor
+            result = Descriptor({})
+
+            # Query each path and override the result
+            for path in paths:
+                query = """
+                    SELECT "config"
+                    FROM "tbl_ctree"
+                    WHERE "path" = $1
+                        AND "asof_utc" <= $2
+                        AND "ver_state" != 'd'
+                    ORDER BY "asof_utc" DESC
+                    LIMIT 1
+                """
+
+                row = await cnn.fetchrow(query, path, asof_utc)
+
+                if not row:
+                    raise AzosError(
+                        message=f"Configuration node not found in ctree",
+                        topic="pgconnector",
+                        frm=f"doWork(path=`{path}`)",
+                        src=1
+                    )
+
+                config_data = row["config"]
+                if not config_data:
+                    raise AzosError(
+                        message=f"Configuration data is empty for path",
+                        topic="pgconnector",
+                        frm=f"doWork(path=`{path}`)",
+                        src=2
+                    )
+
+                if isinstance(config_data, str):
+                    config_data = json.loads(config_data)
+
+                # Create descriptor from fetched config and override
+                override_descriptor = Descriptor(config_data)
+                result.override_by(override_descriptor)
+
+            return result
+        finally:
+            await cnn.close()
+
+
+    @override
+    def __call__(self,
+                instance_id: str,
+                entry_point_path: str,
+                app_id: str,
+                environment: str,
+                host: str,
+                config: ConfigParser) -> "Descriptor":
+
+        try:
+            result = asyncio.run(self.doWork(instance_id,
+                                             entry_point_path,
+                                             app_id,
+                                             environment,
+                                             host,
+                                             config))
+            return result
+        except Exception as e:
+            raise AzosError(
+                message=f"!!!Catastrophic failure!!!: \n"
+                        f"PgSqlCtreeChassisDescriptorFactory was not able to obtain descriptor to bootload chassis \n"
+                        f"Inspect the inner error for details \n"
+                        f"Inner error: \n     {str(e)}",
+                topic="pgconnector",
+                frm=f"__call__(app_id=`{app_id}`, env=`{environment}`, host=`{host}`)",
+                src=0
+            ) from e
+
 
 
 class PgConnector(AppComponent):
