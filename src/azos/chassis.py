@@ -442,6 +442,7 @@ class AppChassis(DisposableObject):
 
         super().__init__()
 
+        self._is_default = False
         self._instance_id = uuid.uuid4().hex
         self._components: List[AppComponent] = []
         self._entry_point_path = os.path.abspath(ep_path)

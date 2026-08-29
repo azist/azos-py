@@ -237,3 +237,4 @@ class ConfigTree(AsyncDaemon):
                                 config=merged_config.seal(),
                                 props=fetched[1].seal())
         return result
+
