@@ -28,12 +28,10 @@
 CREATE DATABASE :"db_name"
     WITH
     ENCODING = 'UTF8'
-    LC_COLLATE = 'en_US.utf8'
-    LC_CTYPE = 'en_US.utf8'
-    LOCALE_PROVIDER = 'libc'
-    TABLESPACE = pg_default
-    CONNECTION LIMIT = -1
-    IS_TEMPLATE = False;
+    LC_COLLATE = 'C.UTF-8'    -- case sensitive binary collation
+    LC_CTYPE = 'C.UTF-8'      -- case sensitive binary collation
+    LOCALE_PROVIDER = 'libc'  -- standard str comparison
+    TEMPLATE = template0;     -- must be used for no collations
 
 
 -- WARNING: DO NOT use `timestamptz` type, it converts dates silently and leads to hard-to find bugs
@@ -108,3 +106,31 @@ COMMENT ON INDEX "idx_ctree_props" IS 'Facilitates node props scanning';
 -- ORDER BY
 --     "asof_utc" DESC
 -- LIMIT 1;
+
+-- -------------------------------------------------------------------------
+-- Insert root "/" node (1980-01-01) and boot nodes
+-- -------------------------------------------------------------------------
+INSERT INTO "tbl_ctree" ("gdid", "path", "asof_utc", "props", "config", "ver_state", "ver_utc", "ver_actor", "ver_origin")
+VALUES
+(
+  1, '/', '1980-01-01 00:00:00',   '{}', '{}',   'c', '1980-01-01 00:00:00', 'system', 7567731
+);
+
+
+INSERT INTO "tbl_ctree" ("gdid", "path", "asof_utc", "props", "config", "ver_state", "ver_utc", "ver_actor", "ver_origin")
+VALUES
+(
+  2, '/boot', '1980-01-01 00:00:00',   '{}', '{}',   'c', '1980-01-01 00:00:00', 'system', 7567731
+);
+
+INSERT INTO "tbl_ctree" ("gdid", "path", "asof_utc", "props", "config", "ver_state", "ver_utc", "ver_actor", "ver_origin")
+VALUES
+(
+  3, '/boot/app', '1980-01-01 00:00:00',   '{}', '{}',   'c', '1980-01-01 00:00:00', 'system', 7567731
+);
+
+INSERT INTO "tbl_ctree" ("gdid", "path", "asof_utc", "props", "config", "ver_state", "ver_utc", "ver_actor", "ver_origin")
+VALUES
+(
+  4, '/boot/app/gov', '1980-01-01 00:00:00',   '{}', '{"app": "gov"}',   'c', '1980-01-01 00:00:00', 'system', 7567731
+);
