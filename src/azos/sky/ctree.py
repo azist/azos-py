@@ -113,11 +113,14 @@ class ConfigTree(AsyncDaemon):
         super().__init__(chassis, director=director)
 
         self._cache = LimitedCache(
-                        config.as_int("cache_max_size") or 1024,
-                        config.as_float("cache_ttl_sec") or 120
+                        config.as_int("cache-max-size") or 1024,
+                        config.as_float("cache-ttl-sec") or 120
                     )
 
-        self._data = make_component_from_descriptor(ConfigTreeDataSource, config, self.chassis, self)
+        self._data = make_component_from_descriptor(ConfigTreeDataSource,
+                                                    config.as_required_descriptor("data-source"),
+                                                    self.chassis,
+                                                    self)
 
         self._pending = {}
 

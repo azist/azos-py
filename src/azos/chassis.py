@@ -241,6 +241,7 @@ def process_includes(root_path: Path,
 
 
 T = TypeVar("T")
+TComponent = TypeVar("TComponent", bound="AppComponent")
 
 class DIContainer:
     """
@@ -676,6 +677,46 @@ class AppChassis(DisposableObject):
         polymorphically resolve or inject dependencies into themselves
         """
         return self._deps
+
+
+    def configured(self, path: str) -> "Descriptor":
+        """Returns a configured descriptor by its path from the root application descriptor"""
+        return self._descriptor.as_descriptor(f"!{path}") # type: ignore
+
+
+    def make_specific(self, type_cls: Type[TComponent],
+                    descriptor: Descriptor | str,
+                    director: AppComponent | None = None) -> TComponent:
+        """
+        Instantiates the specified `type_cls` component using the provided descriptor.
+
+        Returns an instance of the type_cls, configured according to the provided descriptor.
+        """
+        if isinstance(descriptor, str):
+            descriptor = self.configured(descriptor)
+
+        return type_cls(self, director, descriptor) # type: ignore
+
+
+    def make_configured(self, expected_type: Type[TComponent],
+                            descriptor: Descriptor | str,
+                            director: AppComponent | None = None,
+                            default_type_name: str = "") -> TComponent:
+        """
+        A shortcut to factory utils. Instantiates a `expected_type`-subtype component using the provided descriptor.
+
+        Returns an instance of the expected type, configured according to the provided descriptor.
+        """
+        from azos.factoryutils import make
+
+        if isinstance(descriptor, str):
+            descriptor = self.configured(descriptor)
+
+        type_name = descriptor.as_str("type", default_type_name)
+        if not type_name:
+            raise ValueError("Descriptor must have a 'type' attribute specifying the type name.")
+
+        return make(expected_type, type_name, self, director, descriptor)
 
 
     def __enter__(self):
