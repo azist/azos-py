@@ -18,6 +18,7 @@
         "GDID",
         "Instrumentor",
         "isdefault",
+        "knownas",
         "oplog",
         "pgconnector",
         "setuptools",

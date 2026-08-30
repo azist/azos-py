@@ -17,7 +17,7 @@ from configparser import ConfigParser
 from azos.chassis import AppChassis, AppComponent, ChassisDescriptorFactory
 from azos.descriptor import Descriptor
 from azos.exceptions import AzosError
-from azos.factoryutils import register
+from azos.factoryutils import knownas
 
 
 CONFIG_SECTION = "pg-sql-chassis"
@@ -166,7 +166,7 @@ class PgSqlCtreeChassisDescriptorFactory(ChassisDescriptorFactory):
             ) from e
 
 
-@register("PgConnector")
+@knownas("PgConnector")
 class PgConnector(AppComponent):
     """
     PostgreSQL database connector providing connection management for the application chassis.

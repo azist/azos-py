@@ -3,7 +3,7 @@ import asyncio
 from azos.chassis import AppChassis
 from azos.descriptor import Descriptor
 from azos.sky.ctree import ConfigTree, ConfigTreeDataSource
-from azos.factoryutils import register
+from azos.factoryutils import knownas
 
 MOCK_TREE = {
     "/": {
@@ -28,7 +28,7 @@ MOCK_TREE = {
     }
 }
 
-@register("MockTreeSource")
+@knownas("MockTreeSource")
 class MockTreeSource(ConfigTreeDataSource):
 
     async def get_children(self, path: str, asof: float) -> list[str] | None:
@@ -49,7 +49,7 @@ def test_config_tree_navigation():
 
         try:
             config = Descriptor({
-                "type": "MockTreeSource",
+                "data-source": {"type": "MockTreeSource"}
             })
 
             tree = ConfigTree(app, None, config)
@@ -116,7 +116,7 @@ def test_config_tree_navigation_path_normalization():
 
         try:
             config = Descriptor({
-                "type": "MockTreeSource",
+                "data-source": {"type": "MockTreeSource"},
             })
 
             tree = ConfigTree(app, None, config)

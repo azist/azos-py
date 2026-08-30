@@ -1,6 +1,6 @@
 import pytest
 
-from azos.factoryutils import make, make_from_descriptor, make_component_from_descriptor, register
+from azos.factoryutils import make, make_from_descriptor, make_component_from_descriptor, knownas
 from azos.descriptor import Descriptor
 from azos.chassis import AppChassis, AppComponent
 
@@ -21,7 +21,7 @@ class ILog:
         pass
 
 
-@register("EmailService")
+@knownas("EmailService")
 class EmailService(IService):
     def __init__(self, host: str, port: int = 25):
         self.host = host
@@ -31,7 +31,7 @@ class EmailService(IService):
         return f"Email on {self.host}:{self.port}"
 
 
-@register("SmsService")
+@knownas("SmsService")
 class SmsService(IService):
     def __init__(self, **kwargs):
         self.provider = kwargs.get("provider", "unknown")
@@ -40,7 +40,7 @@ class SmsService(IService):
         return f"SMS via {self.provider}"
 
 
-@register("ConsoleLog")
+@knownas("ConsoleLog")
 class ConsoleLog(ILog):
     def __init__(self, descriptor: Descriptor):
         self.prefix = descriptor.as_str("prefix", "Log:")
@@ -49,7 +49,7 @@ class ConsoleLog(ILog):
         return f"{self.prefix} {msg}"
 
 
-@register("FileLog")
+@knownas("FileLog")
 class FileLog(ILog):
     # This matches the signature enforced by make_component_from_descriptor
     # which passes: chassis, director, descriptor
@@ -62,7 +62,7 @@ class FileLog(ILog):
         return f"File {self.path}: {msg}"
 
 
-@register()
+@knownas()
 class ImplicitNameService(IService):
     def execute(self) -> str:
         return "implicit"
@@ -73,7 +73,7 @@ class ImplicitNameService(IService):
 
 def test_register_duplicate():
     with pytest.raises(ValueError, match="is already registered"):
-        @register("EmailService")
+        @knownas("EmailService")
         class AnotherEmailService(IService):
             pass
 
