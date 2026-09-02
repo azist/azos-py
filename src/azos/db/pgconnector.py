@@ -14,7 +14,7 @@ import asyncpg
 
 from configparser import ConfigParser
 
-from azos.chassis import AppChassis, AppComponent, ChassisDescriptorFactory
+from azos.chassis import AppChassis, AppComponent, ChassisDescriptorFactory, expand_var_expressions as evar
 from azos.descriptor import Descriptor
 from azos.exceptions import AzosError
 from azos.factoryutils import knownas
@@ -37,15 +37,15 @@ class PgSqlCtreeChassisDescriptorFactory(ChassisDescriptorFactory):
 
     async def acquire_connection(self, environment: str, config: ConfigParser) -> asyncpg.Connection:
         try:
-            url = config.get(CONFIG_SECTION, "url", fallback=None)
+            url = evar(config.get(CONFIG_SECTION, "url", fallback=None))
 
             # If no URL provided, build it from individual components
             if not url:
-                database = config.get(CONFIG_SECTION, "database", fallback=None)
-                user = config.get(CONFIG_SECTION, "user", fallback=None)
-                password = config.get(CONFIG_SECTION, "password", fallback=None)
-                host = config.get(CONFIG_SECTION, "host", fallback="127.0.0.1")
-                port = config.get(CONFIG_SECTION, "port", fallback="5432")
+                database = evar(config.get(CONFIG_SECTION, "database", fallback=None))
+                user = evar(config.get(CONFIG_SECTION, "user", fallback=None))
+                password = evar(config.get(CONFIG_SECTION, "password", fallback=None))
+                host = evar(config.get(CONFIG_SECTION, "host", fallback="127.0.0.1")) or "127.0.0.1"
+                port = evar(config.get(CONFIG_SECTION, "port", fallback="5432")) or "5432"
 
                 url = f"postgresql://{user}:{password}@{host}:{port}/{database}"
 
