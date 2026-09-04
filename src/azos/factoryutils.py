@@ -21,14 +21,14 @@ T = TypeVar("T")
 _registry: Dict[str, Type] = {}
 
 
-def register(name: str | None = None) -> Callable[[Type[T]], Type[T]]:
+def knownas(name: str | None = None) -> Callable[[Type[T]], Type[T]]:
     """
     Decorator to register a class to the factory by name, thus allowing factory to instantiate
     class instances by string name. The decorator can be used with or without a name argument.
     If no name is provided, the class's name is used.
 
     Usage:
-        @register("MyNamespace.MyLogProvider")
+        @knownas("MyNamespace.MyLogProvider")
         class MyLogger: ...
     """
     def decorator(subclass: Type[T]) -> Type[T]:

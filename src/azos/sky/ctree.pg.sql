@@ -112,25 +112,7 @@ COMMENT ON INDEX "idx_ctree_props" IS 'Facilitates node props scanning';
 -- -------------------------------------------------------------------------
 INSERT INTO "tbl_ctree" ("gdid", "path", "asof_utc", "props", "config", "ver_state", "ver_utc", "ver_actor", "ver_origin")
 VALUES
-(
-  1, '/', '1980-01-01 00:00:00',   '{}', '{}',   'c', '1980-01-01 00:00:00', 'system', 7567731
-);
-
-
-INSERT INTO "tbl_ctree" ("gdid", "path", "asof_utc", "props", "config", "ver_state", "ver_utc", "ver_actor", "ver_origin")
-VALUES
-(
-  2, '/boot', '1980-01-01 00:00:00',   '{}', '{}',   'c', '1980-01-01 00:00:00', 'system', 7567731
-);
-
-INSERT INTO "tbl_ctree" ("gdid", "path", "asof_utc", "props", "config", "ver_state", "ver_utc", "ver_actor", "ver_origin")
-VALUES
-(
-  3, '/boot/app', '1980-01-01 00:00:00',   '{}', '{}',   'c', '1980-01-01 00:00:00', 'system', 7567731
-);
-
-INSERT INTO "tbl_ctree" ("gdid", "path", "asof_utc", "props", "config", "ver_state", "ver_utc", "ver_actor", "ver_origin")
-VALUES
-(
-  4, '/boot/app/gov', '1980-01-01 00:00:00',   '{}', '{"app": "gov"}',   'c', '1980-01-01 00:00:00', 'system', 7567731
-);
+(1, '/',               '1980-01-01 00:00:00', '{}', '{}',             'c', '1980-01-01 00:00:00', 'system', 7567731),
+(2, '/boot',           '1980-01-01 00:00:00', '{}', '{}',             'c', '1980-01-01 00:00:00', 'system', 7567731),
+(3, '/boot/app',       '1980-01-01 00:00:00', '{}', '{}',             'c', '1980-01-01 00:00:00', 'system', 7567731),
+(4, '/boot/app/gov',   '1980-01-01 00:00:00', '{}', '{"app": "gov"}', 'c', '1980-01-01 00:00:00', 'system', 7567731);

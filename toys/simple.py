@@ -11,7 +11,7 @@ class MyDaemon(AsyncDaemon):
     @property
     @override
     def interval_s(self) -> float:
-        return 1.0 # once a second
+        return 3.0 # once a second
 
     async def __aexit__(self, exc_type, exc_value, traceback) -> None:
         print("MyDaemon is shutting down...")

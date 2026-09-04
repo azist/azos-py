@@ -12,6 +12,7 @@ import logging
 import os
 import atexit
 import re
+from time import time
 import uuid
 import platform
 
@@ -241,6 +242,7 @@ def process_includes(root_path: Path,
 
 
 T = TypeVar("T")
+TComponent = TypeVar("TComponent", bound="AppComponent")
 
 class DIContainer:
     """
@@ -442,6 +444,7 @@ class AppChassis(DisposableObject):
 
         super().__init__()
 
+        self._utc_start = time() # epoch
         self._is_default = False
         self._instance_id = uuid.uuid4().hex
         self._components: List[AppComponent] = []
@@ -652,6 +655,55 @@ class AppChassis(DisposableObject):
 
 
     @property
+    def description(self) -> str:
+        """
+        Returns the application description which is taken from root config descriptor or
+        from app config section `[<app-id>]/description` attribute. If none is found, returns a
+        default description: `Application <app_id> ver. <version>`.
+        """
+
+        result = self.descriptor.as_str("description")
+
+        if not result:
+            result = expand_var_expressions(
+                self._config.get(self._app, "description"),
+                chassis=self)
+
+        if not result:
+            result = f"Application `{self._app}` ver. `{self.version}`"
+
+        return result
+
+
+    @property
+    def version(self) -> str:
+        """
+        Returns the application version from [<app-id>]/version configuration.
+        You can use ENV_VAR expansion like so:
+          `version = $(chassis::env)-1.0.0` which will expand to `dev-1.0.0` if the environment is `dev`
+        or
+          `version = $(chassis::app)-$(chassis::env)-$(VERSION)` which will expand to `myapp-dev-1.0.0`
+          if the app id is `myapp` and environment is `dev`  and env var `VERSION` is set to `1.0.0`.
+        If no version is found, returns `unknown`
+        """
+
+        result = expand_var_expressions(
+            self._config.get(self._app, "version"),
+            chassis=self)
+
+        if not result:
+            result = "unknown"
+
+        return result
+
+
+    @property
+    def utc_start(self) -> float:
+        """Returns the UTC epoch time when this chassis was allocated"""
+        return self._utc_start
+
+
+    @property
     def components(self) -> Sequence["AppComponent"]:
         """
         Returns a sequence of components which are registered with this chassis.
@@ -676,6 +728,46 @@ class AppChassis(DisposableObject):
         polymorphically resolve or inject dependencies into themselves
         """
         return self._deps
+
+
+    def configured(self, path: str) -> "Descriptor":
+        """Returns a configured descriptor by its path from the root application descriptor"""
+        return self._descriptor.as_descriptor(f"!{path}") # type: ignore
+
+
+    def make_specific(self, type_cls: Type[TComponent],
+                    descriptor: Descriptor | str,
+                    director: AppComponent | None = None) -> TComponent:
+        """
+        Instantiates the specified `type_cls` component using the provided descriptor.
+
+        Returns an instance of the type_cls, configured according to the provided descriptor.
+        """
+        if isinstance(descriptor, str):
+            descriptor = self.configured(descriptor)
+
+        return type_cls(self, director, descriptor) # type: ignore
+
+
+    def make_configured(self, expected_type: Type[TComponent],
+                            descriptor: Descriptor | str,
+                            director: AppComponent | None = None,
+                            default_type_name: str = "") -> TComponent:
+        """
+        A shortcut to factory utils. Instantiates a `expected_type`-subtype component using the provided descriptor.
+
+        Returns an instance of the expected type, configured according to the provided descriptor.
+        """
+        from azos.factoryutils import make
+
+        if isinstance(descriptor, str):
+            descriptor = self.configured(descriptor)
+
+        type_name = descriptor.as_str("type", default_type_name)
+        if not type_name:
+            raise ValueError("Descriptor must have a 'type' attribute specifying the type name.")
+
+        return make(expected_type, type_name, self, director, descriptor)
 
 
     def __enter__(self):

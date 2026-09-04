@@ -645,6 +645,12 @@ class Descriptor:
 
         return default
 
+    def as_required_descriptor(self, path: str, descriptor_type: type[TDescriptor] | type['Descriptor'] | None = None, default: TDescriptor | 'Descriptor' | None = None, verbatim: bool = False
+        ) -> TDescriptor | 'Descriptor':
+        return self.as_descriptor(f"!{path}",
+                                  descriptor_type=descriptor_type,
+                                  default=default,
+                                  verbatim=verbatim) # type: ignore
 
     def as_descriptor(
         self, path: str, descriptor_type: type[TDescriptor] | type['Descriptor'] | None = None, default: TDescriptor | 'Descriptor' | None = None, verbatim: bool = False
