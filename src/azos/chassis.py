@@ -12,6 +12,7 @@ import logging
 import os
 import atexit
 import re
+from time import time
 import uuid
 import platform
 
@@ -443,6 +444,7 @@ class AppChassis(DisposableObject):
 
         super().__init__()
 
+        self._utc_start = time() # epoch
         self._is_default = False
         self._instance_id = uuid.uuid4().hex
         self._components: List[AppComponent] = []
@@ -650,6 +652,55 @@ class AppChassis(DisposableObject):
     def app(self) -> str:
         """Short application id. Atom recommended"""
         return self._app
+
+
+    @property
+    def description(self) -> str:
+        """
+        Returns the application description which is taken from root config descriptor or
+        from app config section `[<app-id>]/description` attribute. If none is found, returns a
+        default description: `Application <app_id> ver. <version>`.
+        """
+
+        result = self.descriptor.as_str("description")
+
+        if not result:
+            result = expand_var_expressions(
+                self._config.get(self._app, "description"),
+                chassis=self)
+
+        if not result:
+            result = f"Application `{self._app}` ver. `{self.version}`"
+
+        return result
+
+
+    @property
+    def version(self) -> str:
+        """
+        Returns the application version from [<app-id>]/version configuration.
+        You can use ENV_VAR expansion like so:
+          `version = $(chassis::env)-1.0.0` which will expand to `dev-1.0.0` if the environment is `dev`
+        or
+          `version = $(chassis::app)-$(chassis::env)-$(VERSION)` which will expand to `myapp-dev-1.0.0`
+          if the app id is `myapp` and environment is `dev`  and env var `VERSION` is set to `1.0.0`.
+        If no version is found, returns `unknown`
+        """
+
+        result = expand_var_expressions(
+            self._config.get(self._app, "version"),
+            chassis=self)
+
+        if not result:
+            result = "unknown"
+
+        return result
+
+
+    @property
+    def utc_start(self) -> float:
+        """Returns the UTC epoch time when this chassis was allocated"""
+        return self._utc_start
 
 
     @property
