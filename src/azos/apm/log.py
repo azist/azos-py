@@ -11,7 +11,7 @@ import contextvars
 
 from typing import Callable
 from azos.chassis import AppChassis
-from azos.conio import ANSIColors, mix
+from azos.conio import ANSIColors, mix, highlight_json
 
 
 LOG_SCHEMA_VERSION = 0
@@ -210,7 +210,7 @@ class AzLogRecordVisualFormatter(AzLogRecordFormatter):
         bg1 = mix(self.COLOR_MAP.get(record.levelno, 'WHITE'), bright=True, fg=False)
         fg2 = mix(self.COLOR_MAP.get(record.levelno, 'WHITE'), bright=False, fg=True)
 
-        lvl = f"{fg1}╔═╣{bg1} {ANSIColors.FG_BLACK}{log_record['lvl']} {ANSIColors.RESET}{fg1}╠═══╣{log_record['id'][:8]}║{ANSIColors.RESET}"
+        lvl = f"{fg1}╔═╣{bg1} {ANSIColors.FG_BLACK}{log_record['lvl']} {ANSIColors.RESET}{fg1}╠═══ {log_record['id']} ══{ANSIColors.RESET}"
         msg = f"{fg1}╚═> {fg2}{log_record['msg']}{ANSIColors.RESET}"
         otl = log_record.get("oti")
         if otl:
@@ -221,14 +221,15 @@ class AzLogRecordVisualFormatter(AzLogRecordFormatter):
         else:
             otl = ""
 
-        segs.append(f"{lvl} {ANSIColors.FG_GRAY} {log_record['lts']} {fg1}■ {ANSIColors.FG_BRIGHT_WHITE}{log_record['chn']}{ANSIColors.RESET} ")
+        segs.append(f"{lvl} {ANSIColors.FG_GRAY}{log_record['lts']} {fg1}■ {ANSIColors.FG_BRIGHT_WHITE}{log_record['chn']}{ANSIColors.RESET} ")
         segs.append(f"«{log_record['nm']}» {ANSIColors.FG_GRAY}{log_record['frm']}{ANSIColors.RESET}")
-        segs.append(f"  {ANSIColors.FG_CYAN}{log_record['rel'][:8] if log_record.get('rel') else ''}{ANSIColors.RESET}")
+        segs.append(f"  {ANSIColors.FG_CYAN}{log_record['rel'] if log_record.get('rel') else ''}{ANSIColors.RESET}")
         segs.append(f"{otl}\n")
         segs.append(f"{msg}")
 
         if "d" in log_record:
             js = safe_json_dumps(log_record["d"])
+            js = highlight_json(js)
             segs.append(f"\n {fg1}   └─► {fg2}{js}{ANSIColors.RESET}")
 
         err = log_record.get("error", None)
@@ -240,8 +241,42 @@ class AzLogRecordVisualFormatter(AzLogRecordFormatter):
 
 
 class AzLogRecordTerseFormatter(AzLogRecordVisualFormatter):
-    #todo: implement terse formatter
-    pass
+      def do_format(self, record: logging.LogRecord, log_record: dict):
+            """Formats for a terse visual presentation in dev console"""
+            segs = []
+            fg1 = mix(self.COLOR_MAP.get(record.levelno, 'WHITE'), bright=True, fg=True)
+            bg1 = mix(self.COLOR_MAP.get(record.levelno, 'WHITE'), bright=True, fg=False)
+            fg2 = mix(self.COLOR_MAP.get(record.levelno, 'WHITE'), bright=False, fg=True)
+
+            lvl = f"{bg1} {ANSIColors.FG_BLACK}{log_record['lvl']} {ANSIColors.RESET} {fg1}{log_record['id'][:8]}{ANSIColors.RESET}"
+            msg = f" {ANSIColors.FG_BRIGHT_WHITE}{log_record['msg']}{ANSIColors.RESET}"
+            otl = log_record.get("oti")
+            if otl:
+                otl = (
+                    f" {fg2}■ {ANSIColors.FG_BRIGHT_MAGENTA}{otl[:8]}{ANSIColors.FG_GRAY}-"
+                    f"{ANSIColors.FG_CYAN}{log_record.get('ots','none')[:8]}{ANSIColors.RESET}"
+                )
+            else:
+                otl = ""
+
+            lts = log_record['lts'].split('T')[1][:12]
+
+            segs.append(f"{lvl}{ANSIColors.FG_GRAY} {lts} {fg2}■ {ANSIColors.FG_BRIGHT_WHITE}{log_record['chn']}{ANSIColors.RESET}")
+            segs.append(f"/{log_record['nm']} {ANSIColors.FG_GRAY}{log_record['frm']}{ANSIColors.RESET}")
+            segs.append(f"  {ANSIColors.FG_CYAN}{log_record['rel'][:8] if log_record.get('rel') else ''}{ANSIColors.RESET}")
+            segs.append(f"{otl} {msg}")
+
+            if "d" in log_record:
+                js = safe_json_dumps(log_record["d"])
+                js = highlight_json(js)
+                segs.append(f"\n {fg2} └─► {js}{ANSIColors.RESET}")
+
+            err = log_record.get("error", None)
+            if err:
+                err = err.replace("\n", f"\n     {fg2}·{ANSIColors.FG_RED} ")
+                segs.append(f"\n   {fg2}└─► {err}{ANSIColors.RESET}")
+
+            return "".join(segs)
 
 class LogStrand(logging.LoggerAdapter):
     """
@@ -332,8 +367,8 @@ def _activate_az_logging() -> None:
 
     # Formatter and set to handler
 
-    formatter = AzLogRecordVisualFormatter() if mode == "visual" else \
-                    AzLogRecordTerseFormatter() if mode == "terse" else \
+    formatter = AzLogRecordVisualFormatter() if mode in ("visual","full") else \
+                    AzLogRecordTerseFormatter() if mode in ("terse","short") else \
                     AzLogRecordJsonFormatter()
 
     handler.setFormatter(formatter)
