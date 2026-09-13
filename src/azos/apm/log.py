@@ -60,7 +60,7 @@ def new_log_id() -> str:
 
 
 def safe_json_default_handler(obj):
-    """Fallabck handler that dumps json payload which can not be serialized"""
+    """Fallback handler that dumps json payload which can not be serialized"""
     t = type(obj)
     return f"CANT_JSON<{t.__module__}::{t.__qualname__}>"
 
@@ -289,7 +289,7 @@ class LogStrand(logging.LoggerAdapter):
 
         :param self: self ref
         :param logger_name (str | None): case-insensitive logger name (converted to lower case)
-        :param rel (str | None) Optional correlation id to be applied to all log messages emittrd by this strand
+        :param rel (str | None) Optional correlation id to be applied to all log messages emitted by this strand
         :param channel (str | None): Optional channel name to categorize log messages
         """
         logger = logging.getLogger(logger_name.lower() if logger_name else None) # case-insensitive
