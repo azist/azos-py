@@ -14,7 +14,14 @@ import time
 import uuid
 
 from azos.descriptor import Descriptor
-from azos.sec.user import User
+
+
+class UserDescriptor(Descriptor):
+    pass
+
+
+class User:
+    pass
 
 
 class Session:
