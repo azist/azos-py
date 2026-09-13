@@ -1,7 +1,7 @@
 # azos-py
 Provides Azos base types and services functionality for Python apps
 
-**ver 0.2.1 20251227 DKh** <br>
+ver 0.2.1 20251227 DKh <br>
 ver 0.1.1 20251218 DKh <br>
 ver 0.0.1 20230701 DKh
 

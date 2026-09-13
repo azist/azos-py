@@ -39,6 +39,7 @@ dependencies = [
     "opentelemetry-semantic-conventions==0.62b1",
     "opentelemetry-util-http==0.62b1",
     "opentelemetry-exporter-otlp-proto-common==1.41.1",
+    "asyncpg>=0.31.0",
 ]
 
 # --------------------------------------------------------
@@ -82,3 +83,8 @@ pythonpath = ["src"]
 python_files = ["*_tests.py", "test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+]

@@ -1,17 +1,33 @@
 """
-Uniform application chassis pattern
+Uniform application chassis pattern.
+Based on Azos.net implementation but with a more opinionated design and Pythonic approach. It is a singleton object
+which gets initialized at the application entry point (such as `main.py`) and provides global boilerplate for app instance
+identification, logical host name mapping and configuration root. It also provides a `DIContainer` for dependency
+injection and service location.
 
-Copyright (C) 2023, 2026 Azist, MIT License
-
+Copyright (C) 2018 - 2026 Azist, MIT License
 """
+
+import logging
 import os
+import atexit
 import re
+from time import time
 import uuid
 import platform
+
+from abc import abstractmethod
+from enum import Enum
+from typing import (Any, Protocol, Sequence, Type, Dict, List, Optional,
+                    Callable, Tuple, TypeVar, override, runtime_checkable, TYPE_CHECKING)
 from pathlib import Path
 from configparser import ConfigParser
-from typing import Any, Type, Dict, List, Optional, Callable, Tuple, TypeVar
+
+from azos.oop import DisposableObject
 from azos.stock_content import loader
+
+if TYPE_CHECKING:
+    from azos.descriptor import Descriptor
 
 
 ENV_ENVIRONMENT_NAME_VAR = "SKY_ENVIRONMENT"
@@ -78,11 +94,12 @@ def expand_var_expressions(val: str | None,
     if val is None:
         return None
 
+    original = val
     i = 0
     while True:
         if i == INCLUDE_MAX_DEPTH:
-            raise ConfigError(f"Expression '{val}' exceeded maximum var expansion depth of {INCLUDE_MAX_DEPTH}. "
-                              f"Look for circular references or missing set env vars.")
+            raise ConfigError(f"Expression '{original}'->'{val}' exceeded maximum var expansion depth of {INCLUDE_MAX_DEPTH}. "
+                              f"Look for circular references or missing env vars.")
 
         matched, val = expand_var_expressions_once(val, resolver, chassis)
 
@@ -225,19 +242,24 @@ def process_includes(root_path: Path,
 
 
 T = TypeVar("T")
+TComponent = TypeVar("TComponent", bound="AppComponent")
 
 class DIContainer:
     """
-    Implements service location/dependency injection pattern by providing a double registry of Dict<Type, Dict<str, instance>>
-    dependency instances
+    Implements service location/dependency injection pattern by providing a double registry of
+    dict[Type, Dict[str, instance]] dependency instances.
+
+    Important: `DIContainer` does not assume any component ownership. Treat it as a specialized data structure
+    for storing and retrieving dependencies. It is the responsibility of the owners/directors to manage dependency
+    life cycles.
     """
 
     def __init__(self) -> None:
-        self._deps: Dict[Type, Dict[str, Any]] = {}
+        self._deps: dict[Type, Dict[str, Any]] = {}
 
     def purge(self, t_dep: Type | None = None):
         """Drops all dependencies and starts anew, if you supply a type then drops only dependencies of that type"""
-        if not t_dep:
+        if t_dep is None:
           self._deps = { }  # Clear all
         else:
           self._deps.pop(t_dep, None)
@@ -255,10 +277,12 @@ class DIContainer:
         :param name: Optional name, to resolve instance by name, if not used then `*` is assumed
         :return: True if was added, false if already existed and was replaced
         """
-        if not t_dep:
+        if t_dep is None:
             raise TypeError("Missing dependency type")
-        if not instance:
+
+        if instance is None:
             raise ValueError("Missing dependency instance")
+
         if not isinstance(instance, t_dep):
             raise TypeError(f"Mismatch in dep registration of type `{t_dep}`, but instance is not of that type")
 
@@ -266,7 +290,7 @@ class DIContainer:
             name = "*"
 
         named = self._deps.get(t_dep, None) # Get type bucket
-        if not named:
+        if named is None:
             named = { }
             self._deps[t_dep] = named
 
@@ -286,16 +310,18 @@ class DIContainer:
         :param name: Optional name, in NOne then `*` is used for any
         :return: Dependency instance of the requested type or None
         """
-        if not t_dep:
+        if t_dep is None:
             return None
+
         named = self._deps.get(t_dep, None)
-        if not named:
+        if named is None:
             return None;
 
         if not name:
             name = "*"
 
         return named.get(name, None)
+
 
     def get(self, t_dep: Type[T], name: str | None = None) -> T:
         """
@@ -309,7 +335,7 @@ class DIContainer:
         :return: Dependency instance of the requested type or None
         """
         result = self.try_get(t_dep, name)
-        if not result:
+        if result is None:
             raise ValueError(f"Could not resolve dependency requirement {t_dep}('{name}')"
                              f"Revise chassis dependency registration like `chassis.deps.register({t_dep}, instance, '{name}')`")
         return result
@@ -346,7 +372,23 @@ class Injector:
         return chassis.deps.get(self.target_type, self.target_name)
 
 
-class AppChassis:
+class ChassisDescriptorFactory(Protocol):
+    """
+    Protocol for a factory that creates application chassis descriptors.
+    Implementers should provide a callable that takes the necessary parameters
+    and returns a `Descriptor` instance.
+    """
+    def __call__(self,
+                 instance_id: str,
+                 entry_point_path: str,
+                 app_id: str,
+                 environment: str,
+                 host: str,
+                 config: ConfigParser) -> "Descriptor":
+        ...
+
+
+class AppChassis(DisposableObject):
     """
     Application chassis pattern provides global boilerplate for app instance identification,
     logical host name mapping and configuration root. It is a singleton object which get initialized
@@ -361,11 +403,13 @@ class AppChassis:
     __s_current: Optional["AppChassis"] = None
     __s_global_dependency_callbacks: List[Callable] = []
 
+
     @staticmethod
     def register_global_dependency_callback(callback: Callable):
         """Registers global dependency callback function if it is not yet registered"""
         if callback not in AppChassis.__s_global_dependency_callbacks:
           AppChassis.__s_global_dependency_callbacks.append(callback)
+
 
     @staticmethod
     def get_default_instance() -> "AppChassis":
@@ -374,6 +418,7 @@ class AppChassis:
       This is a framework internal method which should not be utilized in business apps
       """
       return AppChassis.__s_default # pyright: ignore[reportReturnType]
+
 
     @staticmethod
     def get_current_instance() -> "AppChassis":
@@ -384,34 +429,92 @@ class AppChassis:
       which should use DI instead
       """
       current = AppChassis.__s_current
-      return current if current else AppChassis.__s_default # pyright: ignore[reportReturnType]
+      return current if current is not None else AppChassis.__s_default # pyright: ignore[reportReturnType]
+
 
     def __init__(self,
                  app_id: str,
                  ep_path: str,
                  environment_name: str | None = None,
-                 config: ConfigParser | None = None):
-       self._instance_id = uuid.uuid4().hex
-       self._entry_point_path = os.path.abspath(ep_path)
-       self._app = app_id if app_id else DEFAULT_APP_ID
-       self._instance_tag = self._instance_id[:8] # Tag is a shortened app id
-       self._environment = self._get_environment(environment_name)
-       self._host = platform.node()
-       self._deps = DIContainer()
-       # Must be after _env
-       self._config = self._load_config(config) # use the supplied one or load co-located file
+                 config: ConfigParser | None = None,
+                 descriptor_factory: ChassisDescriptorFactory | None = None):
+        existing = AppChassis.__s_current
+        if existing is not None:
+            raise RuntimeError(f"AppChassis({existing.app}) instance is already allocated. Dispose it first")
 
-       if AppChassis.__s_default is None:
-          AppChassis.__s_default = self
-          self._is_default = True
-       else:
-          AppChassis.__s_current = self
-          self._is_default = False
+        super().__init__()
 
-       # Notify all dependencies
-       for callback in AppChassis.__s_global_dependency_callbacks:
-          if callable(callback):
-             callback()
+        self._utc_start = time() # epoch
+        self._is_default = False
+        self._instance_id = uuid.uuid4().hex
+        self._components: List[AppComponent] = []
+        self._entry_point_path = os.path.abspath(ep_path)
+        self._app = app_id if app_id else DEFAULT_APP_ID
+        self._instance_tag = self._instance_id[:8] # Tag is a shortened app id
+        self._environment = self._get_environment(environment_name)
+        self._host = platform.node()
+        self._deps = DIContainer()
+        # Must be after _env
+        self._config = self._load_config(config) # use the supplied one or load co-located file
+
+        # Must be after _config is loaded
+        self._descriptor = self._load_descriptor(descriptor_factory)
+
+        if AppChassis.__s_default is None:
+            AppChassis.__s_default = self
+            self._is_default = True
+        else:
+            AppChassis.__s_current = self
+            self._is_default = False
+
+        # Notify all dependencies
+        for callback in AppChassis.__s_global_dependency_callbacks:
+            if callable(callback):
+                callback()
+
+
+    def __del__(self):
+         if not self._is_default:
+             super().__del__() # call base class finalizer for leak detection
+
+
+    @override
+    def dispose(self) -> None:
+        if self._is_default:
+            # Never dispose default instance, it is always present and should not be disposed
+            return
+
+        super().dispose()
+
+
+    @override
+    def _dispose(self) -> None:
+        # Not called for default instance
+
+        logger = logging.getLogger("AppChassis")
+
+        all = self._components.copy() # copy to avoid concurrent modification during dispose
+        all.reverse()
+        for c in all:
+            try:
+                c.dispose()
+            except Exception as ex:
+                error = f"Error disposing component {c.__class__.__name__}: {ex}"
+                logger.critical(error)
+
+
+        AppChassis.__s_current = None
+
+        # Notify all dependencies AFTER context switch
+        for callback in AppChassis.__s_global_dependency_callbacks:
+            if callable(callback):
+                callback()
+
+
+    def __repr__(self) -> str:
+        return (f"{self.__class__.__name__}(`{self._app}` {"(DEFAULT)" if self._is_default else ""} `{self._environment}` "
+                f"`{self._host}`  `{self._instance_tag}` `{self._entry_point_path}`)")
+
 
     def _get_environment(self, environment_name: str | None) -> str:
        """
@@ -427,6 +530,7 @@ class AppChassis:
                                     os.getenv(ENV_ENVIRONMENT_NAME_VAR.lower(), DEFAULT_ENV_NAME))
 
        return environment_name.lower() if environment_name else DEFAULT_ENV_NAME
+
 
     def _load_config(self, config: ConfigParser | None) -> ConfigParser:
         """
@@ -458,54 +562,156 @@ class AppChassis:
             source = fn.read_text()
             # Pre process source
             for x in range(INCLUDE_MAX_DEPTH):
+                was = source
                 source = process_includes(path.parent,
                                           source,
                                           expand_vars=True,
                                           chassis=self) #  #include<!../cfg/log-$(ENV_NAME).ini>
+                if was == source: break
             # ------------------
             config.read_string(source, f"Interpolated config `{str(fn)}`")
 
         return config
+
+
+    def _load_descriptor(self, descriptor_factory: ChassisDescriptorFactory | None) -> "Descriptor":
+        """
+        Load the application descriptor using the provided descriptor factory.
+        If no descriptor factory is provided, a default empty descriptor is created and sealed.
+        """
+        from azos.descriptor import Descriptor
+
+        if descriptor_factory is None:
+            result = Descriptor({}, chassis = self)
+            result.seal()
+            return result
+
+        result = descriptor_factory(
+            instance_id=self._instance_id,
+            entry_point_path=self._entry_point_path,
+            app_id=self._app,
+            environment=self._environment,
+            config=self._config,
+            host=self._host
+        )
+        result._chassis = self
+        result.seal()
+
+        return result
+
 
     @property
     def is_default(self) -> bool:
         """Return True if this is a default Application instance"""
         return self._is_default
 
+
     @property
     def config(self) -> ConfigParser:
         """Returns ConfigParser object for this app. It is always present even if app does not have a config file"""
         return self._config
+
+
+    @property
+    def descriptor(self) -> "Descriptor":
+        """Returns the root application configuration descriptor for this chassis"""
+        return self._descriptor
+
 
     @property
     def entry_point_path(self) -> str:
         """Returns full absolute path to the entrypoint"""
         return self._entry_point_path
 
+
     @property
     def environment(self) -> str:
         """Return environment name - always lowercase"""
         return self._environment
+
 
     @property
     def instance_id(self) -> str:
         """Return a string identifier of the running instance"""
         return self._instance_id
 
+
     @property
     def instance_tag(self) -> str:
         """Return a short tag id of the running instance - used for logging"""
         return self._instance_tag
+
 
     @property
     def host(self) -> str:
         """Returns logical host name of this machine. Defaults to physical host name"""
         return self._host
 
+
     @property
     def app(self) -> str:
         """Short application id. Atom recommended"""
         return self._app
+
+
+    @property
+    def description(self) -> str:
+        """
+        Returns the application description which is taken from root config descriptor or
+        from app config section `[<app-id>]/description` attribute. If none is found, returns a
+        default description: `Application <app_id> ver. <version>`.
+        """
+
+        result = self.descriptor.as_str("description")
+
+        if not result:
+            result = expand_var_expressions(
+                self._config.get(self._app, "description"),
+                chassis=self)
+
+        if not result:
+            result = f"Application `{self._app}` ver. `{self.version}`"
+
+        return result
+
+
+    @property
+    def version(self) -> str:
+        """
+        Returns the application version from [<app-id>]/version configuration.
+        You can use ENV_VAR expansion like so:
+          `version = $(chassis::env)-1.0.0` which will expand to `dev-1.0.0` if the environment is `dev`
+        or
+          `version = $(chassis::app)-$(chassis::env)-$(VERSION)` which will expand to `myapp-dev-1.0.0`
+          if the app id is `myapp` and environment is `dev`  and env var `VERSION` is set to `1.0.0`.
+        If no version is found, returns `unknown`
+        """
+
+        result = expand_var_expressions(
+            self._config.get(self._app, "version"),
+            chassis=self)
+
+        if not result:
+            result = "unknown"
+
+        return result
+
+
+    @property
+    def utc_start(self) -> float:
+        """Returns the UTC epoch time when this chassis was allocated"""
+        return self._utc_start
+
+
+    @property
+    def components(self) -> Sequence["AppComponent"]:
+        """
+        Returns a sequence of components which are registered with this chassis.
+        You can use this for runtime introspection of what components are present in the system, for diagnostics.
+        Returns a readonly copy of the internal component registry
+        """
+        return tuple(self._components)
+
 
     @property
     def deps(self) -> DIContainer:
@@ -524,7 +730,235 @@ class AppChassis:
         return self._deps
 
 
+    def configured(self, path: str) -> "Descriptor":
+        """Returns a configured descriptor by its path from the root application descriptor"""
+        return self._descriptor.as_descriptor(f"!{path}") # type: ignore
 
 
-# Allocate default instance
+    def make_specific(self, type_cls: Type[TComponent],
+                    descriptor: Descriptor | str,
+                    director: AppComponent | None = None) -> TComponent:
+        """
+        Instantiates the specified `type_cls` component using the provided descriptor.
+
+        Returns an instance of the type_cls, configured according to the provided descriptor.
+        """
+        if isinstance(descriptor, str):
+            descriptor = self.configured(descriptor)
+
+        return type_cls(self, director, descriptor) # type: ignore
+
+
+    def make_configured(self, expected_type: Type[TComponent],
+                            descriptor: Descriptor | str,
+                            director: AppComponent | None = None,
+                            default_type_name: str = "") -> TComponent:
+        """
+        A shortcut to factory utils. Instantiates a `expected_type`-subtype component using the provided descriptor.
+
+        Returns an instance of the expected type, configured according to the provided descriptor.
+        """
+        from azos.factoryutils import make
+
+        if isinstance(descriptor, str):
+            descriptor = self.configured(descriptor)
+
+        type_name = descriptor.as_str("type", default_type_name)
+        if not type_name:
+            raise ValueError("Descriptor must have a 'type' attribute specifying the type name.")
+
+        return make(expected_type, type_name, self, director, descriptor)
+
+
+    def __enter__(self):
+        """
+        Context manager entry point. Loops through all owned components and enters their context managers if they
+        implement `__enter__` methods. This allows for deterministic context management of components
+        that require it, such as setting up cross-component references.
+
+        Notice: Unlike async counterpart this method does NOT call async context managers because it is not possible to call
+        async methods from sync context. If a component implements only async context manager, it will be skipped by this method.
+        """
+        all = self._components.copy() # copy to avoid concurrent modifications
+        for component in all:
+            if hasattr(component, "__enter__"):
+                component.__enter__() # type: ignore
+
+        return self
+
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        """
+        Context manager exit point. Loops through all owned components in reverse order and exits their context managers
+        if they implement `__exit__` methods. This allows for deterministic context management of components
+        that require it, such as tearing down cross-component references.
+
+        Notice: Unlike async counterpart this method does NOT call async context managers because it is not possible to call
+        async methods from sync context. If a component implements only async context manager, it will be skipped by this method.
+        """
+        all = self._components.copy() # copy to avoid concurrent modification during possible dispose
+        all.reverse()
+        for component in all:
+            if hasattr(component, "__exit__"):
+                component.__exit__(exc_type, exc_value, traceback) # type: ignore
+
+
+    async def __aenter__(self):
+        """
+        Async context manager entry point. Loops through all owned components and enters their ASYNC and SYNC context
+        managers if they implement `__aenter__` or `__enter__` methods. This allows for deterministic context management
+        of components that require it, such as setting up cross-component references.
+
+        ASYNC context managers are preferred, but if a component only implements a synchronous `__enter__` method,
+        it will be called as well in a blocking way.
+        """
+        all = self._components.copy()  # copy to avoid concurrent modifications
+        for component in all:
+            if hasattr(component, "__aenter__"): # 1
+                await component.__aenter__()  # type: ignore
+            elif hasattr(component, "__enter__"): # 2
+                component.__enter__()  # type: ignore
+        return self
+
+
+    async def __aexit__(self, exc_type, exc_value, traceback):
+        """
+        Async context manager exit point. Loops through all owned components in reverse order and exits their ASYNC AND SYNC
+        context managers if they implement `__aexit__` or `__exit__` methods. This allows for deterministic context management
+        of components that require it, such as tearing down cross-component references.
+
+        ASYNC context managers are preferred, but if a component only implements a synchronous `__exit__` method,
+        it will be called as well in a blocking way.
+        """
+        all = self._components.copy()  # copy to avoid concurrent modification during possible dispose
+        all.reverse()
+        for component in all:
+            if hasattr(component, "__aexit__"): # 1
+                await component.__aexit__(exc_type, exc_value, traceback)  # type: ignore
+            elif hasattr(component, "__exit__"): # 2
+                component.__exit__(exc_type, exc_value, traceback)  # type: ignore
+
+
+
+# ##########################################################
+# ############       COMPONENTS     ########################
+# ##########################################################
+
+
+class IAppComponent(Protocol):
+    """
+    Protocol defining the contract for application components which are aware of the chassis and can access its
+    properties and dependencies. Application components get auto registered with app chassis, this way we can get a
+    list of all application components at runtime by accessing `chassis.components` property. This can be used for
+    diagnostics, monitoring, etc.
+
+    Note:
+     It is app components that own other components (directors). Directors (owners) should know how to deterministically
+     dispose their owned components, but the chassis does not dispose them, it is the responsibility of the owners.
+    """
+
+    @property
+    def sid(self) -> int:
+        """Returns a numeric sys id of this component, which is unique within the application instance. It is assigned
+        sequentially in order of component creation. Among other things it is used for component listing in tools
+        """
+        ...
+
+
+    @property
+    def chassis(self) -> AppChassis:
+        """Returns the application chassis instance associated with this component"""
+        ...
+
+
+    @property
+    def director(self) -> Optional["IAppComponent"]:
+        """
+        Returns the director component which owns/directs this component, or None if this component is not owned by
+        any other component. Directors typically own the lifetime of their components, meaning that when a director
+        gets disposed, it disposes all of its components as well. This is a common pattern in component-based
+        architectures.
+        """
+        ...
+
+
+
+class AppComponent(DisposableObject):
+    """
+    Base class for application components which are aware of the chassis and can access its properties and dependencies.
+    Application components get auto registered with app chassis, this way we can get a list of all application
+    components at runtime by accessing `chassis.components` property. This can be used for diagnostics, monitoring, etc.
+
+    Note:
+     It is app components that own other components (directors). Directors (owners) should know how to deterministically
+     dispose their owned components, but the chassis does not dispose them, it is the responsibility of the owners.
+    """
+
+    _s_sid_counter = 0
+
+    def __init__(self, chassis: AppChassis, director: Optional["AppComponent"] = None) -> None:
+        if chassis is None:
+            raise ValueError(f"AppComponent->{self.__class__.__name__} requires a non-null AppChassis reference")
+
+        if director is not None:
+            if not isinstance(director, AppComponent):
+                raise TypeError(f"AppComponent->{self.__class__.__name__} director must be of type AppComponent or None")
+
+            if director._chassis != chassis:
+                raise ValueError(f"AppComponent->{self.__class__.__name__} director component chassis mismatch")
+
+        super().__init__()
+
+        AppComponent._s_sid_counter += 1
+
+        self._sid = AppComponent._s_sid_counter
+        self._chassis = chassis
+        self._director = director
+        self._chassis._components.append(self) # Register component with the chassis, so we can get a list of all components
+
+
+    @override
+    def _dispose(self) -> None:
+        try:
+            self._chassis._components.remove(self) # Remove self from chassis registry
+        except ValueError: pass # if not found, ignore. This is the most efficient way
+
+
+    @property
+    def sid(self) -> int:
+        """
+        Returns a numeric sys id of this component, which is unique within the application instance. It is assigned
+        sequentially in order of component creation. Among other things it is used for component listing in tools
+        """
+        return self._sid
+
+
+    @property
+    def chassis(self) -> AppChassis:
+        """Returns the application chassis instance associated with this component"""
+        return self._chassis
+
+
+    @property
+    def director(self) -> Optional["AppComponent"]:
+        """
+        Returns the director component which owns/directs this component, or None if this component is not owned by
+        any other component. Directors typically own the lifetime of their components, meaning that when a director gets disposed,
+        it disposes all of its components as well. This is a common pattern in component-based architectures.
+        """
+        return self._director
+
+
+
+
+# ##########################################################
+# ########        APP GLOBAL BOOTSTRAP          ############
+# ##########################################################
+
+def _atexit_cleanup():
+    AppChassis.get_current_instance().dispose()
+
+atexit.register(_atexit_cleanup)
+
+# Allocate default instance of chassis
 AppChassis(DEFAULT_APP_ID, __file__)

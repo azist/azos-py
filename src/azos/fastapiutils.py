@@ -11,6 +11,7 @@ from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
 import uvicorn
 
+from azos.oop import free
 from azos.chassis import AppChassis, Injector
 from azos.apm.log import LogStrand
 
@@ -53,8 +54,11 @@ def fastapi_builder(chassis: AppChassis, routers: List[APIRouter] | None = None,
 
     @asynccontextmanager
     async def fastapi_lifespan(faa: FastAPI):
-        faa.state.chassi = chassis # Bind
-        yield
+        faa.state.chassis = chassis # Bind
+
+        async with chassis: # Enter chassis context manager to ensure proper setup and teardown of components
+            yield
+
         faa.state.chassis = AppChassis.get_default_instance() # Unbind
 
     # FastAPI App Creation
@@ -113,4 +117,5 @@ def fastapi_main(chassis: AppChassis, log: LogStrand, app: FastAPI) -> None:
         sys.exit(2)
 
     log.info("...Uvicorn server exited")
+    free(chassis) # Dispose chassis and all its resources
     log.info("App exiting normally. This is the last message.")

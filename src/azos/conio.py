@@ -3,6 +3,8 @@ Azos Console I/O Module
 Copyright (C) 2026 Azist, MIT License
 """
 
+import re
+
 # ANSI Escape Codes Class
 class ANSIColors:
     """Provides ANSI coloring codes"""
@@ -85,3 +87,36 @@ def mix(color: str, bright: bool = False, fg: bool = True) -> str:
     fallback = (ANSIColors.FG_BRIGHT_WHITE if bright else ANSIColors.FG_WHITE) if fg else ANSIColors.BG_BLACK
     return getattr(ANSIColors, key, fallback)
 
+
+def highlight_json(
+    json_str: str,
+    clr_id: str = ANSIColors.FG_CYAN,
+    clr_bool: str = ANSIColors.FG_BRIGHT_MAGENTA,
+    clr_num: str = ANSIColors.FG_BRIGHT_BLUE,
+    clr_str: str = ANSIColors.FG_BRIGHT_GREEN,
+    clr_syn: str = ANSIColors.FG_BRIGHT_CYAN,
+) -> str:
+    """Highlights JSON string with ANSI colors for better readability in console."""
+    pattern = re.compile(
+        r'("(?:\\.|[^"\\])*")(?=\s*:)|'      # identifier (key)
+        r'("(?:\\.|[^"\\])*")|'              # string value
+        r'(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)|' # number
+        r'(true|false|null)|'                 # boolean and null
+        r'([{}\[\]:,])'                       # syntax
+    )
+
+    def match_color(match):
+        id_str, s, n, b, syn = match.groups()
+        if id_str is not None:
+            return f"{clr_id}{id_str}{ANSIColors.RESET}"
+        if s is not None:
+            return f"{clr_str}{s}{ANSIColors.RESET}"
+        if n is not None:
+            return f"{clr_num}{n}{ANSIColors.RESET}"
+        if b is not None:
+            return f"{clr_bool}{b}{ANSIColors.RESET}"
+        if syn is not None:
+            return f"{clr_syn}{syn}{ANSIColors.RESET}"
+        return match.group(0)
+
+    return pattern.sub(match_color, json_str)
