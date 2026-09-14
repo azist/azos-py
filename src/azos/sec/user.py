@@ -21,6 +21,8 @@ from enum import IntEnum
 
 from azos.chassis import AppChassis
 from azos.descriptor import Descriptor
+from azos.sec.credentials import Credentials, NopCredentials
+from azos.sec.rights import Rights
 
 
 class UserDescriptor(Descriptor):
@@ -322,6 +324,21 @@ class UserStatus(IntEnum):
 
 class User:
 
+    @staticmethod
+    def invalid() -> "User":
+        """Creates a no-operation empty user with no credentials and invalid rights"""
+        return User(
+            credentials=NopCredentials(),
+            auth_token=None,
+            status=UserStatus.INVALID,
+            name="John Doe (invalid)",
+            description="Invalid user",
+            roles=["none"],
+            rights=Rights({}),
+            create_utc=0,
+            props=UserDescriptor({}, chassis=AppChassis.get_current_instance())
+        )
+
     def __init__(
             self,
             credentials: Credentials,
@@ -334,7 +351,60 @@ class User:
             create_utc: float,
             props: UserDescriptor
         ):
-        pass
+        self._credentials = credentials
+        self._auth_token = auth_token
+        self._status = status
+        self._name = name
+        self._description = description
+        self._roles = roles
+        self._rights = rights
+        self._create_utc = create_utc
+        self._props = props
+
+    @property
+    def credentials(self) -> Credentials:
+        """Returns the credentials object used to authenticate this user"""
+        return self._credentials
+
+    @property
+    def auth_token(self) -> Any:
+        """Returns the raw auth token used to authenticate this user"""
+        return self._auth_token
+
+    @property
+    def status(self) -> UserStatus:
+        """Returns the user status archetype"""
+        return self._status
+
+    @property
+    def name(self) -> str:
+        """Returns the user display name"""
+        return self._name
+
+    @property
+    def description(self) -> str:
+        """Returns the user description"""
+        return self._description
+
+    @property
+    def roles(self) -> list[str]:
+        """Returns the list of user roles"""
+        return self._roles
+
+    @property
+    def rights(self) -> Rights:
+        """Returns the user rights descriptor"""
+        return self._rights
+
+    @property
+    def create_utc(self) -> float:
+        """Returns the UTC timestamp when the user was created"""
+        return self._create_utc
+
+    @property
+    def props(self) -> UserDescriptor:
+        """Returns the user descriptor with structured access to claims and properties"""
+        return self._props
 
 
 class Session:
@@ -345,13 +415,13 @@ class Session:
     Note: this has nothing to do with "heavy" ASP.NET or PHP sessions stored in files or databases, albeit one could
     easily implement session adapter for such purpose.
 
-    Sessions are typicsally used with `Ambient` design pattern - they pass the info about the logical calling
+    Sessions are typically used with `Ambient` design pattern - they pass the info about the logical calling
     session on behalf of which the work gets performed. System permission authorization is performed
-    in the scope of ambient session unless particular session isnace is passed.
+    in the scope of ambient session unless particular session instance is passed.
 
     Session context is bigger than just `User` principal as it also includes culture and possibly other
-    paraameters which descrbed the specific instance of interaction of the specifc User principal with the system,
-    hence authorization decisions are based on `Session`objects (which have `user: User` and other context) not just users.
+    parameters which described the specific instance of interaction of the specific User principal with the system,
+    hence authorization decisions are based on `Session` objects (which have `user: User` and other context) not just users.
     """
 
     @staticmethod

@@ -4,6 +4,8 @@ Every subclass represents a particular credential type with corresponding struct
 rely on `uid` and `pwd` fields.
 
 Call `forget()` method to drop sensitive information and keep just the object shell to signify how users authenticated
+
+Copyright (C) 2018 - 2026 Azist, MIT License
 """
 
 from abc import ABC
@@ -13,6 +15,13 @@ class Credentials(ABC):
 
     def forget(self):
         """Override to drop sensitive data, such as replace real password with a mask"""
+        pass
+
+
+class NopCredentials(Credentials):
+    """No-operation credentials used for unauthenticated access"""
+    def forget(self):
+        """No sensitive data to drop"""
         pass
 
 
