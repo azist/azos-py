@@ -6,7 +6,7 @@ Copyright (C) 2018 - 2026 Azist, MIT License
 
 import contextvars
 from azos.sec.user import User
-from azos.sec.session import Session
+from azos.sec.user import Session
 
 
 class Ambient:
