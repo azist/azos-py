@@ -690,9 +690,9 @@ class TestAsDict:
             "config": '{"db": {"host": "localhost", "port": 5432}, "cache": {"ttl": 3600}}'
         })
         result = d.as_dict("config")
-        assert result["db"]["host"] == "localhost"
-        assert result["db"]["port"] == 5432
-        assert result["cache"]["ttl"] == 3600
+        assert result["db"]["host"] == "localhost" # type: ignore
+        assert result["db"]["port"] == 5432 # type: ignore
+        assert result["cache"]["ttl"] == 3600 # type: ignore
 
     def test_var_expansion_in_nested_dict(self):
         """Variable in dict value string is expanded."""
@@ -830,8 +830,8 @@ class TestAsList:
         })
         result = d.as_list("mixed")
         assert result == [1, "two", True, 4.5, None]
-        assert result[1] == "two"
-        assert result[2] is True
+        assert result[1] == "two" # type: ignore
+        assert result[2] is True # type: ignore
 
     def test_var_expansion_in_list(self):
         """Variable in list JSON string is expanded."""
