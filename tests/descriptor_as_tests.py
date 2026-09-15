@@ -99,6 +99,28 @@ DATA = {
     "e_str_bad": "yellow",
     "e_int_bad": 99,
     "e_var": "$(e_str_name)",
+
+    # dicts
+    "dict_native": {"x": 10, "y": 20},
+    "dict_json_str": '{"a": 1, "b": 2}',
+    "dict_json_nested": '{"outer": {"inner": "value"}}',
+    "dict_json_array": '{"items": [1, 2, 3]}',
+    "dict_json_bad": '{"invalid": json}',
+    "dict_var": '$(dict_json_str)',  # expands to '{"a": 1, "b": 2}'
+    "dict_int": 42,  # Not a dict or string
+    "dict_none": None,
+    "dict_empty": {},
+
+    # lists
+    "list_native": [1, 2, 3],
+    "list_json_str": '[10, 20, 30]',
+    "list_json_nested": '[[1, 2], [3, 4]]',
+    "list_json_objects": '[{"id": 1}, {"id": 2}]',
+    "list_json_bad": '[1, 2, 3',  # Incomplete JSON
+    "list_var": '$(list_json_str)',  # expands to '[10, 20, 30]'
+    "list_int": 99,  # Not a list or string
+    "list_none": None,
+    "list_empty": [],
 }
 
 
@@ -590,3 +612,283 @@ def test_as_descriptor_default_type():
     sub_desc = d.as_descriptor("sub")
     assert isinstance(sub_desc, Descriptor)
     assert sub_desc.as_int("a") == 1
+
+
+# ===========================================================================
+# as_dict
+# ===========================================================================
+
+class TestAsDict:
+    def test_native_dict(self, desc):
+        """Native dict is returned unchanged."""
+        result = desc.as_dict("dict_native")
+        assert result == {"x": 10, "y": 20}
+        assert isinstance(result, dict)
+
+    def test_json_string_parsed(self, desc):
+        """JSON string is parsed to dict."""
+        result = desc.as_dict("dict_json_str")
+        assert result == {"a": 1, "b": 2}
+        assert isinstance(result, dict)
+
+    def test_json_nested_structure(self, desc):
+        """Nested JSON structure is preserved."""
+        result = desc.as_dict("dict_json_nested")
+        assert result == {"outer": {"inner": "value"}}
+        assert result["outer"]["inner"] == "value"
+
+    def test_json_with_array_value(self, desc):
+        """JSON with array values is parsed correctly."""
+        result = desc.as_dict("dict_json_array")
+        assert result == {"items": [1, 2, 3]}
+        assert result["items"] == [1, 2, 3]
+
+    def test_bad_json_returns_default(self, desc):
+        """Malformed JSON string returns the default."""
+        assert desc.as_dict("dict_json_bad") is None
+        assert desc.as_dict("dict_json_bad", default={"error": True}) == {"error": True}
+
+    def test_missing_path_returns_default(self, desc):
+        """Absent key returns the default."""
+        assert desc.as_dict("missing") is None
+        assert desc.as_dict("missing", default={"x": 0}) == {"x": 0}
+
+    def test_none_value_returns_default(self, desc):
+        """None value at path returns the default."""
+        assert desc.as_dict("dict_none") is None
+        assert desc.as_dict("dict_none", default={"default": True}) == {"default": True}
+
+    def test_non_dict_non_string_returns_default(self, desc):
+        """Integer or other non-dict/non-string returns default."""
+        assert desc.as_dict("dict_int") is None
+        assert desc.as_dict("dict_int", default={"type": "int"}) == {"type": "int"}
+
+    def test_empty_dict(self, desc):
+        """Empty dict is returned as empty dict."""
+        result = desc.as_dict("dict_empty")
+        assert result == {}
+
+    def test_var_expression_expanded(self, desc):
+        """Variable expression is expanded before JSON parsing."""
+        result = desc.as_dict("dict_var")
+        assert result == {"a": 1, "b": 2}
+
+    def test_verbatim_skips_expansion(self, desc):
+        """verbatim=True: variable expression is NOT expanded → parse fails → default."""
+        result = desc.as_dict("dict_var", verbatim=True)
+        assert result is None
+
+    def test_json_string_parses_to_non_dict(self):
+        """JSON string that parses to an array, not dict, returns default."""
+        d = Descriptor({"val": '[1, 2, 3]'})
+        assert d.as_dict("val") is None
+        assert d.as_dict("val", default={"empty": True}) == {"empty": True}
+
+    def test_complex_nested_structure(self):
+        """Complex nested structure with mixed types."""
+        d = Descriptor({
+            "config": '{"db": {"host": "localhost", "port": 5432}, "cache": {"ttl": 3600}}'
+        })
+        result = d.as_dict("config")
+        assert result["db"]["host"] == "localhost"
+        assert result["db"]["port"] == 5432
+        assert result["cache"]["ttl"] == 3600
+
+    def test_var_expansion_in_nested_dict(self):
+        """Variable in dict value string is expanded."""
+        d = Descriptor({
+            "json_tmpl": '{"message": "$(greeting)"}',
+            "greeting": "Hello World"
+        })
+        result = d.as_dict("json_tmpl")
+        assert result == {"message": "Hello World"}
+
+
+# ===========================================================================
+# as_required_dict
+# ===========================================================================
+
+class TestAsRequiredDict:
+    def test_native_dict_required(self, desc):
+        """Native dict is returned unchanged when required."""
+        result = desc.as_required_dict("dict_native")
+        assert result == {"x": 10, "y": 20}
+
+    def test_json_string_parsed_required(self, desc):
+        """JSON string is parsed to dict when required."""
+        result = desc.as_required_dict("dict_json_str")
+        assert result == {"a": 1, "b": 2}
+
+    def test_missing_path_raises_error(self, desc):
+        """Missing required path raises ConfigError."""
+        with pytest.raises(ConfigError):
+            desc.as_required_dict("missing")
+
+    def test_none_value_raises_error(self, desc):
+        """None value at required path raises ConfigError."""
+        with pytest.raises(ConfigError):
+            desc.as_required_dict("dict_none")
+
+    def test_bad_json_raises_error(self, desc):
+        """Malformed JSON at required path raises ConfigError."""
+        with pytest.raises(ConfigError):
+            desc.as_required_dict("dict_json_bad")
+
+    def test_non_dict_type_raises_error(self, desc):
+        """Non-dict type at required path raises ConfigError."""
+        with pytest.raises(ConfigError):
+            desc.as_required_dict("dict_int")
+
+    def test_empty_dict_allowed(self, desc):
+        """Empty dict is allowed for required dict."""
+        result = desc.as_required_dict("dict_empty")
+        assert result == {}
+
+    def test_required_dict_missing_raises_error(self, desc):
+        """Missing required dict path raises ConfigError."""
+        with pytest.raises(ConfigError):
+            desc.as_required_dict("missing")
+
+
+# ===========================================================================
+# as_list
+# ===========================================================================
+
+class TestAsList:
+    def test_native_list(self, desc):
+        """Native list is returned unchanged."""
+        result = desc.as_list("list_native")
+        assert result == [1, 2, 3]
+        assert isinstance(result, list)
+
+    def test_json_string_parsed(self, desc):
+        """JSON string is parsed to list."""
+        result = desc.as_list("list_json_str")
+        assert result == [10, 20, 30]
+        assert isinstance(result, list)
+
+    def test_json_nested_lists(self, desc):
+        """Nested list structure is preserved."""
+        result = desc.as_list("list_json_nested")
+        assert result == [[1, 2], [3, 4]]
+        assert result[0] == [1, 2]
+        assert result[1] == [3, 4]
+
+    def test_json_list_of_objects(self, desc):
+        """List of objects (dicts) is parsed correctly."""
+        result = desc.as_list("list_json_objects")
+        assert result == [{"id": 1}, {"id": 2}]
+        assert result[0]["id"] == 1
+        assert result[1]["id"] == 2
+
+    def test_bad_json_returns_default(self, desc):
+        """Malformed JSON string returns the default."""
+        assert desc.as_list("list_json_bad") is None
+        assert desc.as_list("list_json_bad", default=[]) == []
+        assert desc.as_list("list_json_bad", default=["error"]) == ["error"]
+
+    def test_missing_path_returns_default(self, desc):
+        """Absent key returns the default."""
+        assert desc.as_list("missing") is None
+        assert desc.as_list("missing", default=[1, 2]) == [1, 2]
+
+    def test_none_value_returns_default(self, desc):
+        """None value at path returns the default."""
+        assert desc.as_list("list_none") is None
+        assert desc.as_list("list_none", default=["default"]) == ["default"]
+
+    def test_non_list_non_string_returns_default(self, desc):
+        """Integer or other non-list/non-string returns default."""
+        assert desc.as_list("list_int") is None
+        assert desc.as_list("list_int", default=["error"]) == ["error"]
+
+    def test_empty_list(self, desc):
+        """Empty list is returned as empty list."""
+        result = desc.as_list("list_empty")
+        assert result == []
+
+    def test_var_expression_expanded(self, desc):
+        """Variable expression is expanded before JSON parsing."""
+        result = desc.as_list("list_var")
+        assert result == [10, 20, 30]
+
+    def test_verbatim_skips_expansion(self, desc):
+        """verbatim=True: variable expression is NOT expanded → parse fails → default."""
+        result = desc.as_list("list_var", verbatim=True)
+        assert result is None
+
+    def test_json_string_parses_to_non_list(self):
+        """JSON string that parses to an object, not list, returns default."""
+        d = Descriptor({"val": '{"a": 1}'})
+        assert d.as_list("val") is None
+        assert d.as_list("val", default=["empty"]) == ["empty"]
+
+    def test_list_of_mixed_types(self):
+        """List containing mixed types (int, string, bool)."""
+        d = Descriptor({
+            "mixed": '[1, "two", true, 4.5, null]'
+        })
+        result = d.as_list("mixed")
+        assert result == [1, "two", True, 4.5, None]
+        assert result[1] == "two"
+        assert result[2] is True
+
+    def test_var_expansion_in_list(self):
+        """Variable in list JSON string is expanded."""
+        d = Descriptor({
+            "json_tmpl": '[1, "$(item)", 3]',
+            "item": "two"
+        })
+        result = d.as_list("json_tmpl")
+        assert result == [1, "two", 3]
+
+
+# ===========================================================================
+# as_required_list
+# ===========================================================================
+
+class TestAsRequiredList:
+    def test_native_list_required(self, desc):
+        """Native list is returned unchanged when required."""
+        result = desc.as_required_list("list_native")
+        assert result == [1, 2, 3]
+
+    def test_json_string_parsed_required(self, desc):
+        """JSON string is parsed to list when required."""
+        result = desc.as_required_list("list_json_str")
+        assert result == [10, 20, 30]
+
+    def test_missing_path_raises_error(self, desc):
+        """Missing required path raises ConfigError."""
+        with pytest.raises(ConfigError):
+            desc.as_required_list("missing")
+
+    def test_none_value_raises_error(self, desc):
+        """None value at required path raises ConfigError."""
+        with pytest.raises(ConfigError):
+            desc.as_required_list("list_none")
+
+    def test_bad_json_raises_error(self, desc):
+        """Malformed JSON at required path raises ConfigError."""
+        with pytest.raises(ConfigError):
+            desc.as_required_list("list_json_bad")
+
+    def test_non_list_type_raises_error(self, desc):
+        """Non-list type at required path raises ConfigError."""
+        with pytest.raises(ConfigError):
+            desc.as_required_list("list_int")
+
+    def test_empty_list_allowed(self, desc):
+        """Empty list is allowed for required list."""
+        result = desc.as_required_list("list_empty")
+        assert result == []
+
+    def test_nested_list_required(self, desc):
+        """Nested list structure is preserved when required."""
+        result = desc.as_required_list("list_json_nested")
+        assert result == [[1, 2], [3, 4]]
+
+    def test_list_of_objects_required(self, desc):
+        """List of objects is parsed when required."""
+        result = desc.as_required_list("list_json_objects")
+        assert result == [{"id": 1}, {"id": 2}]

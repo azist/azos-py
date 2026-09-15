@@ -34,6 +34,16 @@ TEnum = TypeVar("TEnum", bound=Enum)
 TDescriptor = TypeVar("TDescriptor", bound="Descriptor")
 
 
+# Sentinel value used to distinguish "value not found/invalid" from explicit None/empty
+class _RequiredSentinel:
+    """Sentinel to indicate required value was not found or could not be converted to required type."""
+    def __repr__(self) -> str:
+        return "<REQUIRED_SENTINEL>"
+
+
+_REQUIRED_SENTINEL = _RequiredSentinel()
+
+
 def override_dict(base: dict,
                   override: dict,
                   override_pragma: str = "_override",
@@ -645,25 +655,52 @@ class Descriptor:
 
         return default
 
-    def as_required_descriptor(self, path: str, descriptor_type: type[TDescriptor] | type['Descriptor'] | None = None, default: TDescriptor | 'Descriptor' | None = None, verbatim: bool = False
+    def as_required_descriptor(
+            self,
+            path: str,
+            descriptor_type: type[TDescriptor] | type['Descriptor'] | None = None,
+            verbatim: bool = False
         ) -> TDescriptor | 'Descriptor':
-        return self.as_descriptor(f"!{path}",
-                                  descriptor_type=descriptor_type,
-                                  default=default,
-                                  verbatim=verbatim) # type: ignore
+        """
+        Navigates to the given path and returns the value as a specified descriptor type. Raises ConfigError if:
+        - The path does not exist
+        - The value is None/null
+        - The value cannot be converted to the specified descriptor type (e.g., bad JSON, wrong type)
+
+        This is the required counterpart to as_descriptor(), with no default value option.
+        """
+        result = self.as_descriptor(path,
+                                    descriptor_type=descriptor_type,
+                                    default=_REQUIRED_SENTINEL,
+                                    verbatim=verbatim)
+
+        if result is _REQUIRED_SENTINEL:
+            raise ConfigError(f"Required descriptor at path `{path}` is missing or invalid in {self.__class__.__name__}[`{self.scope_path}`]")
+
+        return result  # type: ignore
 
     def as_descriptor(
-        self, path: str, descriptor_type: type[TDescriptor] | type['Descriptor'] | None = None, default: TDescriptor | 'Descriptor' | None = None, verbatim: bool = False
-    ) -> TDescriptor | 'Descriptor' | None:
+        self,
+        path: str,
+        descriptor_type: type[TDescriptor] | type['Descriptor'] | None = None,
+        default: TDescriptor | 'Descriptor' | _RequiredSentinel | None = None,
+        verbatim: bool = False
+    ) -> TDescriptor | 'Descriptor' | None | _RequiredSentinel:
         """
         Navigates to the given path and returns the value as a specified descriptor type if possible, otherwise returns
         the default value. String values are treated as JSON objects and parsed into dictionaries before creating the
         descriptor.
 
         If verbatim is False and the value is a string, variable expressions are expanded before conversion.
+
+        If default is not provided, it defaults to None. To get ConfigError behavior for required values, pass
+        the sentinel value _REQUIRED_SENTINEL as the default, which as_required_descriptor does.
         """
         if descriptor_type is None:
             descriptor_type = Descriptor  # type: ignore
+
+        if default is None:
+            default = None  # Explicit to show intent
 
         value = self.navigate(path)
         if value is ... or value is None:
@@ -692,5 +729,124 @@ class Descriptor:
                                    chassis=self._chassis,
                                    scope=self._scope,
                                    scope_path=f"{self.scope_path}/{path}" if self.scope_path else path)
+
+        return default
+
+    def as_required_dict(self, path: str, verbatim: bool = False) -> dict:
+        """
+        Navigates to the given path and returns the value as a dictionary. Raises ConfigError if:
+        - The path does not exist
+        - The value is None/null
+        - The value cannot be converted to a dictionary (e.g., bad JSON, wrong type)
+
+        This is the required counterpart to as_dict(), with no default value option.
+        """
+        result = self.as_dict(path,
+                              default=_REQUIRED_SENTINEL,
+                              verbatim=verbatim)
+
+        if result is _REQUIRED_SENTINEL:
+            raise ConfigError(f"Required dict at path `{path}` is missing or invalid in {self.__class__.__name__}[`{self.scope_path}`]")
+
+        return result  # type: ignore
+
+    def as_dict(
+            self,
+            path: str,
+            default: dict | _RequiredSentinel | None = None,
+            verbatim: bool = False) -> dict | None | _RequiredSentinel:
+        """
+        Navigates to the given path and returns the value as a dictionary if possible, otherwise returns the default value.
+        String values are treated as JSON objects and parsed into dictionaries before returning.
+
+        If verbatim is False and the value is a string, variable expressions are expanded before conversion.
+
+        If default is not provided, it defaults to None. To get ConfigError behavior for required values, pass
+        the sentinel value _REQUIRED_SENTINEL as the default, which as_required_dict does.
+        """
+        if default is None:
+            default = None  # Explicit to show intent
+
+        value = self.navigate(path)
+        if value is ... or value is None:
+            return default
+
+        if isinstance(value, dict):
+            return value
+
+        # Variables expansion
+        if isinstance(value, str):
+            if not verbatim:
+                value = expand_var_expressions(value, resolver=self.var_resolver, chassis=self._chassis)
+                if value is None:
+                    return default
+            try:
+                # Attempt to parse the string as JSON and create a dictionary from it
+                import json
+                parsed_value = json.loads(value)
+                if isinstance(parsed_value, dict):
+                    return parsed_value
+            except:
+                return default
+
+        return default
+
+
+    def as_required_list(self, path: str, verbatim: bool = False) -> list:
+        """
+        Navigates to the given path and returns the value as a list. Raises ConfigError if:
+        - The path does not exist
+        - The value is None/null
+        - The value cannot be converted to a list (e.g., bad JSON, wrong type)
+
+        This is the required counterpart to as_list(), with no default value option.
+        """
+        result = self.as_list(path,
+                              default=_REQUIRED_SENTINEL,
+                              verbatim=verbatim)
+
+        if result is _REQUIRED_SENTINEL:
+            raise ConfigError(f"Required list at path `{path}` is missing or invalid in {self.__class__.__name__}[`{self.scope_path}`]")
+
+        return result  # type: ignore
+
+    def as_list(
+            self,
+            path: str,
+            default: list | _RequiredSentinel | None = None,
+            verbatim: bool = False) -> list | None | _RequiredSentinel:
+        """
+        Navigates to the given path and returns the value as a list if possible, otherwise returns the default value.
+        String values are treated as JSON arrays and parsed into lists before returning.
+
+        If verbatim is False and the value is a string, variable expressions are expanded before conversion.
+
+        If default is not provided, it defaults to None. To get ConfigError behavior for required values, pass
+        the sentinel value _REQUIRED_SENTINEL as the default, which as_required_list does.
+        """
+        if default is None:
+            default = None  # Explicit to show intent
+
+        value = self.navigate(path)
+        if value is ... or value is None:
+            return default
+
+        if isinstance(value, list):
+            return value
+
+        # Variables expansion
+        if isinstance(value, str):
+            if not verbatim:
+                value = expand_var_expressions(value, resolver=self.var_resolver, chassis=self._chassis)
+                if value is None:
+                    return default
+            try:
+                # Attempt to parse the string as JSON and create a list from it
+                import json
+                parsed_value = json.loads(value)
+                if isinstance(parsed_value, list):
+                    return parsed_value
+            except:
+                return default
 
         return default
