@@ -11,6 +11,7 @@ Each section covers:
 
 import pytest
 from datetime import datetime, timezone, timedelta
+from decimal import Decimal
 from enum import Enum
 
 from azos.chassis import ConfigError
@@ -39,6 +40,15 @@ DATA = {
     "f_str":     "2.718",
     "f_str_bad": "abc",
     "f_int":     7,           # int → promoted to float
+
+    # decimals
+    "d_native":     Decimal("99.99"),
+    "d_from_int":   42,                    # int → Decimal
+    "d_from_float": 3.14,                  # float → Decimal (via str to avoid precision issues)
+    "d_str":        "19.95",               # numeric string → Decimal
+    "d_str_scientific": "1.5e2",           # scientific notation
+    "d_str_bad":    "not-a-number",        # non-numeric → default
+    "d_var":        "$(d_str)",            # variable expansion: "19.95"
 
     # bools
     "b_native_t":  True,
@@ -212,6 +222,78 @@ class TestAsFloat:
         """verbatim=True: expression stays literal → parse fails → default."""
         d = Descriptor({"val": "$(src)", "src": "3.14"})
         assert d.as_float("val", verbatim=True) is None
+
+
+# ===========================================================================
+# as_decimal
+# ===========================================================================
+
+class TestAsDecimal:
+    def test_native_decimal(self, desc):
+        """Decimal stored directly is returned unchanged."""
+        result = desc.as_decimal("d_native")
+        assert result == Decimal("99.99")
+        assert isinstance(result, Decimal)
+
+    def test_int_converted_to_decimal(self, desc):
+        """Integer is converted to Decimal via string to avoid float precision issues."""
+        result = desc.as_decimal("d_from_int")
+        assert result == Decimal("42")
+        assert isinstance(result, Decimal)
+
+    def test_float_converted_to_decimal(self, desc):
+        """Float is converted to Decimal via string to avoid float precision issues."""
+        result = desc.as_decimal("d_from_float")
+        assert isinstance(result, Decimal)
+        # 3.14 stored as float may have rounding, but conversion via str minimizes it
+        assert str(result).startswith("3.14")
+
+    def test_string_parses_to_decimal(self, desc):
+        """Numeric string is coerced to Decimal."""
+        result = desc.as_decimal("d_str")
+        assert result == Decimal("19.95")
+        assert isinstance(result, Decimal)
+
+    def test_string_scientific_notation(self, desc):
+        """Scientific notation strings are parsed correctly."""
+        result = desc.as_decimal("d_str_scientific")
+        assert result == Decimal("150")  # 1.5e2 = 150
+        assert isinstance(result, Decimal)
+
+    def test_string_bad_returns_default(self, desc):
+        """Non-numeric string returns default."""
+        assert desc.as_decimal("d_str_bad") is None
+        assert desc.as_decimal("d_str_bad", default=Decimal("0.00")) == Decimal("0.00")
+
+    def test_missing_path_returns_default(self, desc):
+        assert desc.as_decimal("no_such_key") is None
+        assert desc.as_decimal("no_such_key", default=Decimal("100.00")) == Decimal("100.00")
+
+    def test_var_expression_expanded(self):
+        """$(ref) is resolved and then parsed as Decimal."""
+        d = Descriptor({"val": "$(src)", "src": "12.34"})
+        result = d.as_decimal("val")
+        assert result == Decimal("12.34")
+
+    def test_verbatim_skips_expansion(self):
+        """verbatim=True: expression stays literal → parse fails → default."""
+        d = Descriptor({"val": "$(src)", "src": "12.34"})
+        assert d.as_decimal("val", verbatim=True) is None
+
+    def test_precision_preserved(self):
+        """Decimal preserves precision unlike float."""
+        d = Descriptor({"precise": "0.1"})
+        result = d.as_decimal("precise")
+        # Decimal maintains exact precision
+        assert result == Decimal("0.1")
+        # Compare with float, which would be imprecise
+        assert float(result) != 0.1 or result == Decimal("0.1")  # Decimal is exact
+
+    def test_none_returns_default(self, desc):
+        """None value at path returns the default."""
+        d = Descriptor({"val": None})
+        assert d.as_decimal("val") is None
+        assert d.as_decimal("val", default=Decimal("99")) == Decimal("99")
 
 
 # ===========================================================================

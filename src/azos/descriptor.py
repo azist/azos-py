@@ -23,6 +23,7 @@ Copyright (C) 2019 - 2026 Azist, MIT License
 """
 
 import copy
+from decimal import Decimal, InvalidOperation
 from enum import Enum
 from datetime import datetime, timezone
 from types import EllipsisType
@@ -42,6 +43,13 @@ class _RequiredSentinel:
 
 
 _REQUIRED_SENTINEL = _RequiredSentinel()
+"""Required sentinel singleton value used to indicate that a required value was not found or could not be converted to the required type."""
+
+_BOOL_TRUE = frozenset(("true", "yes", "on", "1", "t", "y"))
+"""Frozenset of truthy string values for boolean conversion."""
+
+_BOOL_FALSE = frozenset(("false", "no", "off", "0", "f", "n"))
+"""Frozenset of falsy string values for boolean conversion."""
 
 
 def override_dict(base: dict,
@@ -198,7 +206,8 @@ class Descriptor:
         """
         Seals this descriptor, making it immutable.
         You may not modify the descriptor after it has been sealed.
-        You may not override it. Attempt to get data for a sealed descriptor creates a copy of the underlying data to ensure immutability.
+        You may not override it. Attempt to get source data for a sealed descriptor creates a copy of the underlying
+        data to ensure immutability.
         """
         self._sealed = True
         return self
@@ -313,7 +322,9 @@ class Descriptor:
 
         if path.startswith("/"):
             # Absolute path navigation from the root scope of the descriptor
-            node = self._scope.data
+            # Note: use _data directly (not the `data` property) to avoid a deep copy on sealed scopes;
+            # navigation is read-only and must alias live data just like relative navigation does
+            node = self._scope._data
             path = path[1:]
 
         segments: list[str] = path.split("/")
@@ -468,13 +479,14 @@ class Descriptor:
         Navigates to the given path and returns the value as an integer if possible, otherwise returns the default value.
         If verbatim is False and the value is a string, it will attempt to evaluate variable expressions in the string
         using the chassis before converting to int.
+        Accepts: int, bool (subclass of int), float, Decimal, and numeric strings.
         """
         value = self.navigate(path)
         if value is ... or value is None:
             return default
         if isinstance(value, int):
             return value
-        if isinstance(value, float):
+        if isinstance(value, (float, Decimal)):
             return int(value)
         if isinstance(value, str):
             if not verbatim:
@@ -494,13 +506,14 @@ class Descriptor:
         Navigates to the given path and returns the value as a float if possible, otherwise returns the default value.
         If verbatim is False and the value is a string, it will attempt to evaluate variable expressions in the string
         using the chassis before converting to float.
+        Accepts: float, int, bool (subclass of int), Decimal, and numeric strings.
         """
         value = self.navigate(path)
         if value is ... or value is None:
             return default
         if isinstance(value, float):
             return value
-        if isinstance(value, int):
+        if isinstance(value, (int, Decimal)):
             return float(value)
         if isinstance(value, str):
             if not verbatim:
@@ -514,8 +527,32 @@ class Descriptor:
         return default
 
 
-    _BOOL_TRUE  = frozenset(("true", "yes", "on",  "1", "t", "y"))
-    _BOOL_FALSE = frozenset(("false", "no",  "off", "0", "f", "n"))
+    def as_decimal(self, path: str, default: Decimal | None = None, verbatim: bool = False) -> Decimal | None:
+        """
+        Navigates to the given path and returns the value as a Decimal if possible, otherwise returns the default value.
+        Decimals are useful for precise numeric calculations (e.g., financial data, scientific precision).
+        If verbatim is False and the value is a string, it will attempt to evaluate variable expressions in the string
+        using the chassis before converting to Decimal.
+        Accepts: Decimal, int, bool (subclass of int), float, and numeric strings.
+        """
+        value = self.navigate(path)
+        if value is ... or value is None:
+            return default
+        if isinstance(value, Decimal):
+            return value
+        if isinstance(value, (int, float)):
+            return Decimal(str(value))  # Convert via string to avoid float precision issues
+        if isinstance(value, str):
+            if not verbatim:
+                value = expand_var_expressions(value, resolver=self.var_resolver, chassis=self._chassis)
+                if value is None:
+                    return default
+            try:
+                return Decimal(value)
+            except (ValueError, TypeError, InvalidOperation):
+                return default
+        return default
+
 
     def as_bool(self, path: str, default: bool | None = None, verbatim: bool = False) -> bool | None:
         """
@@ -537,9 +574,9 @@ class Descriptor:
                 if value is None:
                     return default
             lv = value.strip().lower()
-            if lv in Descriptor._BOOL_TRUE:
+            if lv in _BOOL_TRUE:
                 return True
-            if lv in Descriptor._BOOL_FALSE:
+            if lv in _BOOL_FALSE:
                 return False
         return default
 
@@ -614,6 +651,7 @@ class Descriptor:
                     continue
         return default
 
+
     def as_enum(
         self, path: str, enum_type: type[TEnum], default: TEnum | None = None, verbatim: bool = False
     ) -> TEnum | None:
@@ -655,6 +693,7 @@ class Descriptor:
 
         return default
 
+
     def as_required_descriptor(
             self,
             path: str,
@@ -678,6 +717,7 @@ class Descriptor:
             raise ConfigError(f"Required descriptor at path `{path}` is missing or invalid in {self.__class__.__name__}[`{self.scope_path}`]")
 
         return result  # type: ignore
+
 
     def as_descriptor(
         self,
@@ -732,6 +772,7 @@ class Descriptor:
 
         return default
 
+
     def as_required_dict(self, path: str, verbatim: bool = False) -> dict:
         """
         Navigates to the given path and returns the value as a dictionary. Raises ConfigError if:
@@ -749,6 +790,7 @@ class Descriptor:
             raise ConfigError(f"Required dict at path `{path}` is missing or invalid in {self.__class__.__name__}[`{self.scope_path}`]")
 
         return result  # type: ignore
+
 
     def as_dict(
             self,
@@ -809,6 +851,7 @@ class Descriptor:
             raise ConfigError(f"Required list at path `{path}` is missing or invalid in {self.__class__.__name__}[`{self.scope_path}`]")
 
         return result  # type: ignore
+
 
     def as_list(
             self,
