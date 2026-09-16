@@ -218,9 +218,9 @@ class ConfigTree(AsyncDaemon):
 
         if path == "/":
             return ConfigTreeNode(path,
-                                  level_config=fetched[0].seal(),
-                                  config=fetched[0].clone().seal(),
-                                  props=fetched[1].seal())
+                                  level_config=fetched[0],
+                                  config=fetched[0].clone(),
+                                  props=fetched[1])
 
         # chop rightmost path segment to get parent
         idx = path.rfind("/")
@@ -231,13 +231,11 @@ class ConfigTree(AsyncDaemon):
         if parent is None:
             return None
 
-        # clone parent's config to avoid mutating shared cached nodes
-        merged_config = parent.config.clone()
-        merged_config.override_by(fetched[0])
+        merged_config = parent.config.override_by(fetched[0])
 
         result = ConfigTreeNode(path,
-                                level_config=fetched[0].seal(),
-                                config=merged_config.seal(),
-                                props=fetched[1].seal())
+                                level_config=fetched[0],
+                                config=merged_config,
+                                props=fetched[1])
         return result
 
