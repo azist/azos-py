@@ -583,7 +583,6 @@ class AppChassis(DisposableObject):
 
         if descriptor_factory is None:
             result = Descriptor({}, chassis = self)
-            result.seal()
             return result
 
         result = descriptor_factory(
@@ -595,7 +594,6 @@ class AppChassis(DisposableObject):
             host=self._host
         )
         result._chassis = self
-        result.seal()
 
         return result
 
