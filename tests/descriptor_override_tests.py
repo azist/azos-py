@@ -697,3 +697,314 @@ class TestDescriptorOverrideByWithVarEval:
         assert result.as_str("a") == "level-1-val"
         assert result.as_str("data/x") == "10"
         assert result.as_str("data/ref") == "level-1-val"
+
+
+# ===========================================================================
+# Descriptor.override_by with lists – add, clear, type mismatch
+# ===========================================================================
+
+class TestDescriptorOverrideWithLists:
+    """
+    Tests Descriptor.override_by() focusing on list operations:
+      - appending list elements
+      - clearing list elements via _clear pragma
+      - keyed replacement within lists
+      - type mismatch: replacing a list value with a dict
+      - type mismatch: replacing a dict value with a list
+    """
+
+    # -----------------------------------------------------------------------
+    # Append list elements
+    # -----------------------------------------------------------------------
+
+    def test_01_append_scalars_to_list(self):
+        """Scalar items from override are appended to the base list"""
+        base = Descriptor({"tags": ["a", "b"]})
+        ovr = Descriptor({"tags": ["c"]})
+
+        result = base.override_by(ovr)
+
+        assert result.navigate("tags") == ["a", "b", "c"]
+
+    def test_02_append_multiple_scalars(self):
+        """Multiple scalar items are all appended in order"""
+        base = Descriptor({"ids": [1, 2]})
+        ovr = Descriptor({"ids": [3, 4, 5]})
+
+        result = base.override_by(ovr)
+
+        assert result.navigate("ids") == [1, 2, 3, 4, 5]
+
+    def test_03_append_dict_items_without_key(self):
+        """Dict items lacking list_item_key are appended, not matched"""
+        base = Descriptor({"items": [{"val": 1}]})
+        ovr = Descriptor({"items": [{"val": 2}]})
+
+        result = base.override_by(ovr)
+
+        assert result.navigate("items") == [{"val": 1}, {"val": 2}]
+
+    def test_04_empty_override_list_no_change(self):
+        """Empty override list does not alter base list"""
+        base = Descriptor({"tags": ["a", "b"]})
+        ovr = Descriptor({"tags": []})
+
+        result = base.override_by(ovr)
+
+        assert result.navigate("tags") == ["a", "b"]
+
+    def test_05_append_into_empty_base_list(self):
+        """Override items are appended into an empty base list"""
+        base = Descriptor({"tags": []})
+        ovr = Descriptor({"tags": ["x", "y"]})
+
+        result = base.override_by(ovr)
+
+        assert result.navigate("tags") == ["x", "y"]
+
+    def test_06_new_list_key_added_from_override(self):
+        """A list key absent from base is added as-is from override"""
+        base = Descriptor({"a": 1})
+        ovr = Descriptor({"tags": [10, 20]})
+
+        result = base.override_by(ovr)
+
+        assert result.navigate("tags") == [10, 20]
+        assert result.as_str("a") == "1"
+
+    def test_07_append_none_item(self):
+        """None is a valid list item and gets appended"""
+        base = Descriptor({"vals": [1]})
+        ovr = Descriptor({"vals": [None]})
+
+        result = base.override_by(ovr)
+
+        assert result.navigate("vals") == [1, None]
+
+    # -----------------------------------------------------------------------
+    # Keyed replacement in lists
+    # -----------------------------------------------------------------------
+
+    def test_08_keyed_item_replaced(self):
+        """Dict item whose list_item_key matches a base item replaces it"""
+        base = Descriptor({"items": [{"name": "a", "v": 1}, {"name": "b", "v": 2}]})
+        ovr = Descriptor({"items": [{"name": "b", "v": 99}]})
+
+        result = base.override_by(ovr)
+
+        items = result.navigate("items")
+        assert {"name": "a", "v": 1} in items # type: ignore
+        assert {"name": "b", "v": 99} in items # type: ignore
+
+    def test_09_keyed_item_no_match_appended(self):
+        """Dict item with unmatched key is appended"""
+        base = Descriptor({"items": [{"name": "a", "v": 1}]})
+        ovr = Descriptor({"items": [{"name": "z", "v": 9}]})
+
+        result = base.override_by(ovr)
+
+        items = result.navigate("items")
+        assert len(items) == 2 # type: ignore
+        assert {"name": "z", "v": 9} in items # type: ignore
+
+    # -----------------------------------------------------------------------
+    # Clear list via _clear pragma
+    # -----------------------------------------------------------------------
+
+    def test_10_clear_pragma_wipes_list(self):
+        """_clear sentinel clears the base list before appending remaining items"""
+        base = Descriptor({"tags": ["a", "b", "c"]})
+        ovr = Descriptor({"tags": ["_clear", "x"]})
+
+        result = base.override_by(ovr)
+
+        assert result.navigate("tags") == ["x"]
+
+    def test_11_clear_pragma_alone_leaves_empty_list(self):
+        """_clear alone results in an empty list"""
+        base = Descriptor({"tags": ["a", "b"]})
+        ovr = Descriptor({"tags": ["_clear"]})
+
+        result = base.override_by(ovr)
+
+        assert result.navigate("tags") == []
+
+    def test_12_clear_pragma_sentinel_not_in_result(self):
+        """The _clear sentinel itself never appears in the resulting list"""
+        base = Descriptor({"tags": ["a"]})
+        ovr = Descriptor({"tags": ["_clear", "b", "c"]})
+
+        result = base.override_by(ovr)
+
+        assert "_clear" not in result.navigate("tags") # type: ignore
+        assert result.navigate("tags") == ["b", "c"]
+
+    def test_13_clear_then_keyed_replacement(self):
+        """_clear followed by keyed dict items starts a fresh list"""
+        base = Descriptor({"items": [{"name": "old", "v": 0}]})
+        ovr = Descriptor({"items": ["_clear", {"name": "new", "v": 1}]})
+
+        result = base.override_by(ovr)
+
+        assert result.navigate("items") == [{"name": "new", "v": 1}]
+
+    # -----------------------------------------------------------------------
+    # Type mismatch: list ↔ dict replacement
+    # -----------------------------------------------------------------------
+
+    def test_14_dict_replaces_list(self):
+        """Override dict value where base has a list replaces the list entirely"""
+        base = Descriptor({"data": [1, 2, 3]})
+        ovr = Descriptor({"data": {"key": "val"}})
+
+        result = base.override_by(ovr)
+
+        assert result.navigate("data") == {"key": "val"}
+
+    def test_15_list_replaces_dict(self):
+        """Override list value where base has a dict replaces the dict entirely"""
+        base = Descriptor({"cfg": {"a": 1, "b": 2}})
+        ovr = Descriptor({"cfg": [10, 20, 30]})
+
+        result = base.override_by(ovr)
+
+        assert result.navigate("cfg") == [10, 20, 30]
+
+    def test_16_nested_dict_replaces_nested_list(self):
+        """Nested type mismatch: override dict replaces base list within a section"""
+        base = Descriptor({"section": {"items": [1, 2, 3]}})
+        ovr = Descriptor({"section": {"items": {"a": 1}}})
+
+        result = base.override_by(ovr)
+
+        assert result.navigate("section/items") == {"a": 1}
+
+    def test_17_nested_list_replaces_nested_dict(self):
+        """Nested type mismatch: override list replaces base dict within a section"""
+        base = Descriptor({"section": {"cfg": {"x": 1, "y": 2}}})
+        ovr = Descriptor({"section": {"cfg": ["alpha", "beta"]}})
+
+        result = base.override_by(ovr)
+
+        assert result.navigate("section/cfg") == ["alpha", "beta"]
+
+    def test_18_deep_nested_dict_replaces_list(self):
+        """Deeply nested type mismatch: dict replaces list at third level"""
+        base = Descriptor({"l1": {"l2": {"data": [10, 20]}}})
+        ovr = Descriptor({"l1": {"l2": {"data": {"replaced": True}}}})
+
+        result = base.override_by(ovr)
+
+        assert result.navigate("l1/l2/data") == {"replaced": True}
+
+    def test_19_deep_nested_list_replaces_dict(self):
+        """Deeply nested type mismatch: list replaces dict at third level"""
+        base = Descriptor({"l1": {"l2": {"data": {"x": 1}}}})
+        ovr = Descriptor({"l1": {"l2": {"data": [99, 100]}}})
+
+        result = base.override_by(ovr)
+
+        assert result.navigate("l1/l2/data") == [99, 100]
+
+    def test_20_scalar_replaces_list(self):
+        """Scalar override value replaces a base list"""
+        base = Descriptor({"data": [1, 2, 3]})
+        ovr = Descriptor({"data": "replaced"})
+
+        result = base.override_by(ovr)
+
+        assert result.as_str("data") == "replaced"
+
+    def test_21_scalar_replaces_dict(self):
+        """Scalar override value replaces a base dict"""
+        base = Descriptor({"cfg": {"a": 1}})
+        ovr = Descriptor({"cfg": 42})
+
+        result = base.override_by(ovr)
+
+        assert result.navigate("cfg") == 42
+
+    def test_22_list_replaces_scalar(self):
+        """List override value replaces a base scalar"""
+        base = Descriptor({"val": 42})
+        ovr = Descriptor({"val": [1, 2, 3]})
+
+        result = base.override_by(ovr)
+
+        assert result.navigate("val") == [1, 2, 3]
+
+    def test_23_dict_replaces_scalar(self):
+        """Dict override value replaces a base scalar"""
+        base = Descriptor({"val": "hello"})
+        ovr = Descriptor({"val": {"nested": True}})
+
+        result = base.override_by(ovr)
+
+        assert result.navigate("val") == {"nested": True}
+
+    # -----------------------------------------------------------------------
+    # Combined: list ops + sibling keys preserved
+    # -----------------------------------------------------------------------
+
+    def test_24_list_append_with_sibling_scalars(self):
+        """List append and scalar override coexist correctly"""
+        base = Descriptor({"name": "base", "tags": ["a"], "count": 1})
+        ovr = Descriptor({"name": "ovr", "tags": ["b"], "count": 99})
+
+        result = base.override_by(ovr)
+
+        assert result.as_str("name") == "ovr"
+        assert result.navigate("tags") == ["a", "b"]
+        assert result.navigate("count") == 99
+
+    def test_25_list_clear_with_sibling_dict_merge(self):
+        """List clear and sibling nested-dict merge coexist correctly"""
+        base = Descriptor({
+            "tags": ["old1", "old2"],
+            "settings": {"timeout": 30, "retries": 3},
+        })
+        ovr = Descriptor({
+            "tags": ["_clear", "new"],
+            "settings": {"timeout": 60},
+        })
+
+        result = base.override_by(ovr)
+
+        assert result.navigate("tags") == ["new"]
+        assert result.navigate("settings/timeout") == 60
+        assert result.navigate("settings/retries") == 3
+
+    def test_26_type_mismatch_with_sibling_preservation(self):
+        """Type mismatch replacement does not affect sibling keys"""
+        base = Descriptor({
+            "items": [1, 2, 3],
+            "cfg": {"a": 1, "b": 2},
+            "keep": "untouched",
+        })
+        ovr = Descriptor({
+            "items": {"replaced": True},      # list → dict
+            "cfg": [10, 20],                   # dict → list
+        })
+
+        result = base.override_by(ovr)
+
+        assert result.navigate("items") == {"replaced": True}
+        assert result.navigate("cfg") == [10, 20]
+        assert result.as_str("keep") == "untouched"
+
+    def test_27_vareval_after_list_append(self):
+        """Variable expression in a scalar resolves correctly after sibling list is appended"""
+        base = Descriptor({
+            "env": "dev",
+            "ref": "$(/env)",
+            "ports": [8080],
+        })
+        ovr = Descriptor({
+            "env": "prod",
+            "ports": [9090],
+        })
+
+        result = base.override_by(ovr)
+
+        assert result.as_str("ref") == "prod"
+        assert result.navigate("ports") == [8080, 9090]
