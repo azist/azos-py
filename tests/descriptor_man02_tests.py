@@ -15,7 +15,7 @@ def test_basic_01():
     a = Descriptor({"a": 1, "b": True})
     b = Descriptor({"a": 7, "c": "hello"})
 
-    a.override_by(b)
+    a = a.override_by(b)
 
     assert len(a) == 3
     assert a["a"] == 7
@@ -29,7 +29,7 @@ def test_basic_02():
     a = Descriptor({"a": 1, "b": True, "_override": "stop"})
     b = Descriptor({"a": 7, "c": "hello"})
 
-    a.override_by(b)
+    a = a.override_by(b)
 
     assert len(a) == 3
     assert a["a"] == 1
@@ -49,7 +49,7 @@ def test_basic_04():
     a = Descriptor({"a": 1, "b": {"a": -2}})
     b = Descriptor({"a": 7, "b": {"c": 90}})
 
-    a.override_by(b)
+    a = a.override_by(b)
 
     assert len(a) == 2
     assert a["a"] == 7
@@ -62,7 +62,7 @@ def test_basic_05():
     a = Descriptor({"a": 1, "b": [1,2,3]})
     b = Descriptor({"a": 7, "b": [40,52]})
 
-    a.override_by(b)
+    a = a.override_by(b)
 
     assert len(a) == 2
     assert a["a"] == 7
@@ -78,7 +78,7 @@ def test_basic_06():
     a = Descriptor({"a": 1, "b": [{"name": "x", "val": 1}, {"name": "y", "val": 2}]})
     b = Descriptor({"a": 7, "b": [{"name": "y", "val": 40}, {"name": "z", "val": 52}]})
 
-    a.override_by(b)
+    a = a.override_by(b)
 
     assert len(a) == 2
     assert len(a["b"]) == 3 # type: ignore
@@ -96,7 +96,7 @@ def test_basic_07():
     a = Descriptor({"a": 1, "b": [{"id": "x", "val": 1}, {"id": "y", "val": 2}]})
     b = Descriptor({"a": 7, "b": [{"id": "y", "val": 40}, {"id": "z", "val": 52}]})
 
-    a.override_by(b) # the resulting list will have 4 as "id" is not the default list_item_key ("name" is)
+    a = a.override_by(b) # the resulting list will have 4 as "id" is not the default list_item_key ("name" is)
 
     assert len(a) == 2
     assert len(a["b"]) == 4 # type: ignore
@@ -116,7 +116,7 @@ def test_basic_08():
     a = Descriptor({"a": 1, "b": [{"id": "x", "val": 1}, {"id": "y", "val": 2}]})
     b = Descriptor({"a": 7, "b": [{"id": "y", "val": 40}, {"id": "z", "val": 52}]})
 
-    a.override_by(b, list_item_key="id") # the resulting list will have 3 because of "id" key matching
+    a = a.override_by(b, list_item_key="id") # the resulting list will have 3 because of "id" key matching
 
     assert len(a) == 2
     assert len(a["b"]) == 3 # type: ignore
@@ -134,7 +134,7 @@ def test_basic_09():
     a = Descriptor({"a": 1, "b": [1,2,3]})
     b = Descriptor({"a": 7, "b": {"x": 989} }) # overriding list with dict
 
-    a.override_by(b)
+    a = a.override_by(b)
 
     assert len(a) == 2
     assert a["a"] == 7
@@ -147,7 +147,7 @@ def test_basic_10():
     a = Descriptor({"a": 7, "b": {"x": 989} }) # overriding dict with list
     b = Descriptor({"a": 1, "b": [1,2,3]})
 
-    a.override_by(b)
+    a = a.override_by(b)
 
     assert len(a) == 2
     assert a["a"] == 1
@@ -160,7 +160,7 @@ def test_basic_11():
     a = Descriptor({"a": 1, "b": [1,2,3]})
     b = Descriptor({"a": 7, "b": [40, "_clear", 52]})
 
-    a.override_by(b)
+    a = a.override_by(b)
 
     print(a)
     assert len(a) == 2
@@ -220,30 +220,30 @@ def test_app_config():
     current = v1.clone()
     assert current.data is not v1.data
 
-    current.override_by(v2)
-    assert current.data is not v1.data
-    assert current.data is not v2.data
+    overridden = current.override_by(v2)
+    assert overridden.data is not v1.data
+    assert overridden.data is not v2.data
 
 
-    print(repr(current.data))
+    print(repr(overridden.data))
 
-    assert current["app/version"] == "1.1"
-    assert current["app/description"] == "My Application second release"
-    assert current["paths/$name=root/path"] == "/"
-    assert current["paths/$name=data/path"] == "~/new_data"
-    assert current["paths/$name=cache/path"] == "~/cache"
+    assert overridden["app/version"] == "1.1"
+    assert overridden["app/description"] == "My Application second release"
+    assert overridden["paths/$name=root/path"] == "/"
+    assert overridden["paths/$name=data/path"] == "~/new_data"
+    assert overridden["paths/$name=cache/path"] == "~/cache"
 
-    assert current["log/daemon"] == "sync"
-    assert current["log/sinks/$name=console/type"] == "console"
-    assert current["log/sinks/$name=file/type"] == "file"
+    assert overridden["log/daemon"] == "sync"
+    assert overridden["log/sinks/$name=console/type"] == "console"
+    assert overridden["log/sinks/$name=file/type"] == "file"
 
     assert v1["log/sinks/$name=file/path"] == "~/logs/app.log"
     assert v2["log/sinks/$name=file/path"] == "~/logs/app_v2.log"
 
-    assert current["log/sinks/$name=file/path"] == "~/logs/app_v2.log"
+    assert overridden["log/sinks/$name=file/path"] == "~/logs/app_v2.log"
 
     assert v1["db/port"] == 5432
     assert v2["db/port"] == 3306
 
-    assert current["db/user"] == "appuser"
-    assert current["db/port"] == 3306
+    assert overridden["db/user"] == "appuser"
+    assert overridden["db/port"] == 3306

@@ -4,6 +4,7 @@ from azos.sky.ctree import ConfigTree
 
 app = AppChassis("gov", __file__, descriptor_factory=PgSqlCtreeChassisDescriptorFactory())
 
+print(f"/C  is: {app.descriptor.as_str("c")}")
 print(app.descriptor.data)
 
 #app.deps.register(PgConnector, app.make_configured(PgConnector, "pg-connector", default_type_name="PgConnector"))

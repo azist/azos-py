@@ -3,6 +3,9 @@ Descriptors provide convenient way of working with structured data represented a
 configuration sections, rulesets, or any other hierarchical data. They provide methods for navigating the data using
 path expressions, and for accessing values in the data with type conversion and variable expression evaluation.
 
+Descriptors are essentially a read-only view wrappers around a dictionary of key-value pairs, with optional support for
+variable expression evaluation using a chassis instance and a scope descriptor for cross-referencing between descriptors.
+
 The ideology is based on the battle tested approach in 10s of large scale enterprise systems 2007-2025 using NFX/Azos C#
 codebases, but the implementation is a clean rewrite for Python idioms and runtime capabilities, as such it avoids
 section-per-section allocations which are used in C# codebase, as this would have been inefficient on a Python runtime,
@@ -23,6 +26,7 @@ Copyright (C) 2019 - 2026 Azist, MIT License
 """
 
 import copy
+from decimal import Decimal, InvalidOperation
 from enum import Enum
 from datetime import datetime, timezone
 from types import EllipsisType
@@ -42,6 +46,13 @@ class _RequiredSentinel:
 
 
 _REQUIRED_SENTINEL = _RequiredSentinel()
+"""Required sentinel singleton value used to indicate that a required value was not found or could not be converted to the required type."""
+
+_BOOL_TRUE = frozenset(("true", "yes", "on", "1", "t", "y"))
+"""Frozenset of truthy string values for boolean conversion."""
+
+_BOOL_FALSE = frozenset(("false", "no", "off", "0", "f", "n"))
+"""Frozenset of falsy string values for boolean conversion."""
 
 
 def override_dict(base: dict,
@@ -141,7 +152,8 @@ class Descriptor:
     """
     A descriptor is a wrapper around a dictionary of key-value pairs. It provides a convenient way
      to access and navigate various descriptor data structures, such as JWT claims, configuration sections, rulesets,
-     or any other structured data that can be represented as a hierarchical dictionary.
+     or any other structured data that can be represented as a hierarchical dictionary. Descriptors are read-only views
+    of the underlying data, and they provide methods for navigating and consuming its underlying dictionary data.
 
     You can subclass `Descriptor` to create custom data fields and typed accessors and business logic for the underlying data,
     for example provide access to common JWT fields like `exp` and `iat` as `datetime` objects instead of raw timestamps.
@@ -157,7 +169,6 @@ class Descriptor:
         self._chassis: AppChassis | None = chassis
         self._scope: Descriptor = scope or self
         self._scope_path: str = scope_path or ""
-        self._sealed: bool = False
 
 
     def clone(self) -> Descriptor:
@@ -165,7 +176,7 @@ class Descriptor:
         Creates a deep copy of this descriptor, including its underlying data dictionary. The cloned descriptor will
         have the same chassis, scope, and scope_path as the original descriptor.
         """
-        return self.__class__(copy.deepcopy(self._data), self._chassis, self._scope, self._scope_path)
+        return self.__class__(copy.deepcopy(self._data), self._chassis, None if self._scope is self else self._scope, self._scope_path)
 
 
     def __repr__(self) -> str:
@@ -194,26 +205,10 @@ class Descriptor:
         return ok
 
 
-    def seal(self) -> Descriptor:
-        """
-        Seals this descriptor, making it immutable.
-        You may not modify the descriptor after it has been sealed.
-        You may not override it. Attempt to get data for a sealed descriptor creates a copy of the underlying data to ensure immutability.
-        """
-        self._sealed = True
-        return self
-
-
-    @property
-    def sealed(self) -> bool:
-        """Indicates whether this descriptor has been sealed and is immutable."""
-        return self._sealed
-
-
     @property
     def data(self) -> dict:
-        """Returns the underlying raw data dictionary. If this descriptor is sealed returns a deep copy of data"""
-        return self._data if not self._sealed else copy.deepcopy(self._data)
+        """Returns the underlying raw data dictionary"""
+        return self._data
 
 
     @property
@@ -250,10 +245,11 @@ class Descriptor:
                   override: Descriptor | dict,
                   override_pragma: str = "_override",
                   clear_list_pragma: str = "_clear",
-                  list_item_key: str = "name") -> None:
+                  list_item_key: str = "name") -> "Descriptor":
         """
-        On a non-sealed instance, mutates this descriptor by recursively overriding its items key-by-key with the values
-         from the overriding dictionary.
+        Creates a new descriptor by recursively overriding this descriptor items key-by-key with the values
+         from the overriding dictionary returning a new overridden descriptor instance.
+
         The system "merges" the overriding keys over the base, key-by-key recursively.
         If the value is a list, then the system merges items from the overriding list into the base list subject to list merging
         pragmas described below. If the overriding value does not match the collection type, such as dict overriding list or vice versa,
@@ -281,15 +277,16 @@ class Descriptor:
                 - list_item_key: The key name in list items that is used to match items for replacement (default "name")
         """
 
-        if self._sealed:
-            raise RuntimeError("Cannot override a sealed descriptor")
+        overridden = self.clone()
 
-        override_dict(self._data,
+        override_dict(overridden._data,
                       override if isinstance(override, dict) else override._data,
                       override_pragma,
                       clear_list_pragma,
                       list_item_key,
                       self.scope_path)
+
+        return overridden
 
 
     def try_navigate(self, path: str) -> tuple[bool, Any | None]:
@@ -313,7 +310,9 @@ class Descriptor:
 
         if path.startswith("/"):
             # Absolute path navigation from the root scope of the descriptor
-            node = self._scope.data
+            # Note: use _data directly (not the `data` property) to avoid a deep copy on sealed scopes;
+            # navigation is read-only and must alias live data just like relative navigation does
+            node = self._scope._data
             path = path[1:]
 
         segments: list[str] = path.split("/")
@@ -468,13 +467,14 @@ class Descriptor:
         Navigates to the given path and returns the value as an integer if possible, otherwise returns the default value.
         If verbatim is False and the value is a string, it will attempt to evaluate variable expressions in the string
         using the chassis before converting to int.
+        Accepts: int, bool (subclass of int), float, Decimal, and numeric strings.
         """
         value = self.navigate(path)
         if value is ... or value is None:
             return default
         if isinstance(value, int):
             return value
-        if isinstance(value, float):
+        if isinstance(value, (float, Decimal)):
             return int(value)
         if isinstance(value, str):
             if not verbatim:
@@ -494,13 +494,14 @@ class Descriptor:
         Navigates to the given path and returns the value as a float if possible, otherwise returns the default value.
         If verbatim is False and the value is a string, it will attempt to evaluate variable expressions in the string
         using the chassis before converting to float.
+        Accepts: float, int, bool (subclass of int), Decimal, and numeric strings.
         """
         value = self.navigate(path)
         if value is ... or value is None:
             return default
         if isinstance(value, float):
             return value
-        if isinstance(value, int):
+        if isinstance(value, (int, Decimal)):
             return float(value)
         if isinstance(value, str):
             if not verbatim:
@@ -514,8 +515,32 @@ class Descriptor:
         return default
 
 
-    _BOOL_TRUE  = frozenset(("true", "yes", "on",  "1", "t", "y"))
-    _BOOL_FALSE = frozenset(("false", "no",  "off", "0", "f", "n"))
+    def as_decimal(self, path: str, default: Decimal | None = None, verbatim: bool = False) -> Decimal | None:
+        """
+        Navigates to the given path and returns the value as a Decimal if possible, otherwise returns the default value.
+        Decimals are useful for precise numeric calculations (e.g., financial data, scientific precision).
+        If verbatim is False and the value is a string, it will attempt to evaluate variable expressions in the string
+        using the chassis before converting to Decimal.
+        Accepts: Decimal, int, bool (subclass of int), float, and numeric strings.
+        """
+        value = self.navigate(path)
+        if value is ... or value is None:
+            return default
+        if isinstance(value, Decimal):
+            return value
+        if isinstance(value, (int, float)):
+            return Decimal(str(value))  # Convert via string to avoid float precision issues
+        if isinstance(value, str):
+            if not verbatim:
+                value = expand_var_expressions(value, resolver=self.var_resolver, chassis=self._chassis)
+                if value is None:
+                    return default
+            try:
+                return Decimal(value)
+            except (ValueError, TypeError, InvalidOperation):
+                return default
+        return default
+
 
     def as_bool(self, path: str, default: bool | None = None, verbatim: bool = False) -> bool | None:
         """
@@ -537,9 +562,9 @@ class Descriptor:
                 if value is None:
                     return default
             lv = value.strip().lower()
-            if lv in Descriptor._BOOL_TRUE:
+            if lv in _BOOL_TRUE:
                 return True
-            if lv in Descriptor._BOOL_FALSE:
+            if lv in _BOOL_FALSE:
                 return False
         return default
 
@@ -614,6 +639,7 @@ class Descriptor:
                     continue
         return default
 
+
     def as_enum(
         self, path: str, enum_type: type[TEnum], default: TEnum | None = None, verbatim: bool = False
     ) -> TEnum | None:
@@ -655,6 +681,7 @@ class Descriptor:
 
         return default
 
+
     def as_required_descriptor(
             self,
             path: str,
@@ -678,6 +705,7 @@ class Descriptor:
             raise ConfigError(f"Required descriptor at path `{path}` is missing or invalid in {self.__class__.__name__}[`{self.scope_path}`]")
 
         return result  # type: ignore
+
 
     def as_descriptor(
         self,
@@ -732,6 +760,7 @@ class Descriptor:
 
         return default
 
+
     def as_required_dict(self, path: str, verbatim: bool = False) -> dict:
         """
         Navigates to the given path and returns the value as a dictionary. Raises ConfigError if:
@@ -749,6 +778,7 @@ class Descriptor:
             raise ConfigError(f"Required dict at path `{path}` is missing or invalid in {self.__class__.__name__}[`{self.scope_path}`]")
 
         return result  # type: ignore
+
 
     def as_dict(
             self,
@@ -809,6 +839,7 @@ class Descriptor:
             raise ConfigError(f"Required list at path `{path}` is missing or invalid in {self.__class__.__name__}[`{self.scope_path}`]")
 
         return result  # type: ignore
+
 
     def as_list(
             self,
