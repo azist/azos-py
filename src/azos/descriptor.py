@@ -3,6 +3,9 @@ Descriptors provide convenient way of working with structured data represented a
 configuration sections, rulesets, or any other hierarchical data. They provide methods for navigating the data using
 path expressions, and for accessing values in the data with type conversion and variable expression evaluation.
 
+Descriptors are essentially a read-only view wrappers around a dictionary of key-value pairs, with optional support for
+variable expression evaluation using a chassis instance and a scope descriptor for cross-referencing between descriptors.
+
 The ideology is based on the battle tested approach in 10s of large scale enterprise systems 2007-2025 using NFX/Azos C#
 codebases, but the implementation is a clean rewrite for Python idioms and runtime capabilities, as such it avoids
 section-per-section allocations which are used in C# codebase, as this would have been inefficient on a Python runtime,
@@ -149,7 +152,8 @@ class Descriptor:
     """
     A descriptor is a wrapper around a dictionary of key-value pairs. It provides a convenient way
      to access and navigate various descriptor data structures, such as JWT claims, configuration sections, rulesets,
-     or any other structured data that can be represented as a hierarchical dictionary.
+     or any other structured data that can be represented as a hierarchical dictionary. Descriptors are read-only views
+    of the underlying data, and they provide methods for navigating and consuming its underlying dictionary data.
 
     You can subclass `Descriptor` to create custom data fields and typed accessors and business logic for the underlying data,
     for example provide access to common JWT fields like `exp` and `iat` as `datetime` objects instead of raw timestamps.
