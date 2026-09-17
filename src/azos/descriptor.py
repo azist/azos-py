@@ -165,7 +165,6 @@ class Descriptor:
         self._chassis: AppChassis | None = chassis
         self._scope: Descriptor = scope or self
         self._scope_path: str = scope_path or ""
-        self._sealed: bool = False
 
 
     def clone(self) -> Descriptor:
@@ -173,7 +172,7 @@ class Descriptor:
         Creates a deep copy of this descriptor, including its underlying data dictionary. The cloned descriptor will
         have the same chassis, scope, and scope_path as the original descriptor.
         """
-        return self.__class__(copy.deepcopy(self._data), self._chassis, self._scope, self._scope_path)
+        return self.__class__(copy.deepcopy(self._data), self._chassis, None if self._scope is self else self._scope, self._scope_path)
 
 
     def __repr__(self) -> str:
@@ -202,27 +201,10 @@ class Descriptor:
         return ok
 
 
-    def seal(self) -> Descriptor:
-        """
-        Seals this descriptor, making it immutable.
-        You may not modify the descriptor after it has been sealed.
-        You may not override it. Attempt to get source data for a sealed descriptor creates a copy of the underlying
-        data to ensure immutability.
-        """
-        self._sealed = True
-        return self
-
-
-    @property
-    def sealed(self) -> bool:
-        """Indicates whether this descriptor has been sealed and is immutable."""
-        return self._sealed
-
-
     @property
     def data(self) -> dict:
-        """Returns the underlying raw data dictionary. If this descriptor is sealed returns a deep copy of data"""
-        return self._data if not self._sealed else copy.deepcopy(self._data)
+        """Returns the underlying raw data dictionary"""
+        return self._data
 
 
     @property
@@ -259,10 +241,11 @@ class Descriptor:
                   override: Descriptor | dict,
                   override_pragma: str = "_override",
                   clear_list_pragma: str = "_clear",
-                  list_item_key: str = "name") -> None:
+                  list_item_key: str = "name") -> "Descriptor":
         """
-        On a non-sealed instance, mutates this descriptor by recursively overriding its items key-by-key with the values
-         from the overriding dictionary.
+        Creates a new descriptor by recursively overriding this descriptor items key-by-key with the values
+         from the overriding dictionary returning a new overridden descriptor instance.
+
         The system "merges" the overriding keys over the base, key-by-key recursively.
         If the value is a list, then the system merges items from the overriding list into the base list subject to list merging
         pragmas described below. If the overriding value does not match the collection type, such as dict overriding list or vice versa,
@@ -290,15 +273,16 @@ class Descriptor:
                 - list_item_key: The key name in list items that is used to match items for replacement (default "name")
         """
 
-        if self._sealed:
-            raise RuntimeError("Cannot override a sealed descriptor")
+        overridden = self.clone()
 
-        override_dict(self._data,
+        override_dict(overridden._data,
                       override if isinstance(override, dict) else override._data,
                       override_pragma,
                       clear_list_pragma,
                       list_item_key,
                       self.scope_path)
+
+        return overridden
 
 
     def try_navigate(self, path: str) -> tuple[bool, Any | None]:
