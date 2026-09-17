@@ -1,9 +1,9 @@
 """
-Tests for override_dict() function in azos.descriptor
+Tests for override_dict() function and Descriptor.override_by() in azos.descriptor
 """
 import pytest
 from azos.chassis import ConfigError
-from azos.descriptor import override_dict
+from azos.descriptor import Descriptor, override_dict
 
 
 # ---------------------------------------------------------------------------
@@ -450,3 +450,250 @@ class TestCombined:
         """Deeply nested type mismatch replaces base"""
         base = {"a": {"b": {"c": [1, 2, 3]}}}
         assert od(base, {"a": {"b": {"c": {"key": "val"}}}}) == {"a": {"b": {"c": {"key": "val"}}}}
+
+
+# ===========================================================================
+# Descriptor.override_by with variable evaluation via $(/path)
+# ===========================================================================
+
+class TestDescriptorOverrideByWithVarEval:
+    """
+    Tests Descriptor.override_by() (not just raw dict override) combined with
+    variable expression evaluation using $(/path) syntax.
+
+    Each test builds a two-level override scenario:
+      - Level 1 (base): key "a" = "level-1-val", plus "ref" = "$(/a)" that
+        references the root value of "a" via absolute path
+      - Level 2 (override): changes "a" to "level-2-val"
+      - After override, evaluating "ref" via as_str should resolve $(/a) to
+        "level-2-val" (the overridden state), proving the descriptor sees
+        the proper level-2 state
+    """
+
+    def test_01_default_merge_vareval_sees_overridden_value(self):
+        """No _override pragma: merge is default; $(/a) resolves to level-2 value"""
+        base = Descriptor({
+            "a": "level-1-val",
+            "b": 100,
+            "ref": "$(/a)",
+        })
+        ovr = Descriptor({
+            "a": "level-2-val",
+        })
+
+        result = base.override_by(ovr)
+
+        assert result.as_str("a") == "level-2-val"
+        assert result.as_str("b") == "100"
+        assert result.as_str("ref") == "level-2-val"  # $(/a) → level-2
+
+    def test_02_merge_pragma_vareval_sees_overridden_value(self):
+        """Explicit _override='merge': $(/a) resolves to level-2 value"""
+        base = Descriptor({
+            "_override": "merge",
+            "a": "level-1-val",
+            "ref": "$(/a)",
+        })
+        ovr = Descriptor({
+            "a": "level-2-val",
+        })
+
+        result = base.override_by(ovr)
+
+        assert result.as_str("a") == "level-2-val"
+        assert result.as_str("ref") == "level-2-val"
+
+    def test_03_stop_pragma_vareval_sees_level1_value(self):
+        """_override='stop' prevents all changes; $(/a) still resolves to level-1 value"""
+        base = Descriptor({
+            "_override": "stop",
+            "a": "level-1-val",
+            "ref": "$(/a)",
+        })
+        ovr = Descriptor({
+            "a": "level-2-val",
+        })
+
+        result = base.override_by(ovr)
+
+        assert result.as_str("a") == "level-1-val"  # unchanged
+        assert result.as_str("ref") == "level-1-val"  # $(/a) → still level-1
+
+    def test_04_fail_pragma_raises_on_override(self):
+        """_override='fail' raises ConfigError when override is attempted"""
+        base = Descriptor({
+            "_override": "fail",
+            "a": "level-1-val",
+            "ref": "$(/a)",
+        })
+        ovr = Descriptor({
+            "a": "level-2-val",
+        })
+
+        with pytest.raises(ConfigError):
+            base.override_by(ovr)
+
+    def test_05_replace_pragma_vareval_sees_replacement(self):
+        """_override='replace' wipes base and replaces with override; $(/a) resolves in new state"""
+        base = Descriptor({
+            "_override": "replace",
+            "a": "level-1-val",
+            "b": "old-field",
+            "ref": "$(/a)",
+        })
+        ovr = Descriptor({
+            "a": "level-2-val",
+            "ref": "$(/a)",
+        })
+
+        result = base.override_by(ovr)
+
+        assert result.as_str("a") == "level-2-val"
+        assert "b" not in result  # old key wiped by replace
+        assert result.as_str("ref") == "level-2-val"  # $(/a) → level-2
+
+    def test_06_nested_stop_pragma_vareval_mixed(self):
+        """Nested section with stop pragma keeps level-1; sibling section merges level-2"""
+        base = Descriptor({
+            "a": "level-1-val",
+            "locked": {
+                "_override": "stop",
+                "x": "original",
+                "ref": "$(/a)",
+            },
+            "open": {
+                "y": "original",
+                "ref": "$(/a)",
+            },
+        })
+        ovr = Descriptor({
+            "a": "level-2-val",
+            "locked": {"x": "changed", "ref": "literal"},
+            "open": {"y": "changed"},
+        })
+
+        result = base.override_by(ovr)
+
+        assert result.as_str("a") == "level-2-val"
+        # locked section is stopped: keeps original values
+        assert result.as_str("locked/x") == "original"
+        # but $(/a) in locked still resolves against the root which DID change
+        assert result.as_str("locked/ref") == "level-2-val"
+        # open section merged normally
+        assert result.as_str("open/y") == "changed"
+        assert result.as_str("open/ref") == "level-2-val"
+
+    def test_07_nested_fail_pragma_raises_on_nested_override(self):
+        """Nested section with fail pragma raises; other sections untouched"""
+        base = Descriptor({
+            "a": "level-1-val",
+            "protected": {
+                "_override": "fail",
+                "x": 1,
+                "ref": "$(/a)",
+            },
+            "open": {"y": 2},
+        })
+        ovr = Descriptor({
+            "a": "level-2-val",
+            "protected": {"x": 99},
+            "open": {"y": 20},
+        })
+
+        with pytest.raises(ConfigError):
+            base.override_by(ovr)
+
+    def test_08_nested_replace_pragma_vareval(self):
+        """Nested section with replace pragma: old keys removed, $(/a) resolves to level-2"""
+        base = Descriptor({
+            "a": "level-1-val",
+            "cfg": {
+                "_override": "replace",
+                "old_key": "gone",
+                "ref": "$(/a)",
+            },
+        })
+        ovr = Descriptor({
+            "a": "level-2-val",
+            "cfg": {
+                "new_key": "fresh",
+                "ref": "$(/a)",
+            },
+        })
+
+        result = base.override_by(ovr)
+
+        assert result.as_str("a") == "level-2-val"
+        assert "cfg/old_key" not in result  # wiped by replace
+        assert result.as_str("cfg/new_key") == "fresh"
+        assert result.as_str("cfg/ref") == "level-2-val"  # $(/a) → level-2
+
+    def test_09_no_pragma_deep_nested_vareval(self):
+        """Deep nesting without pragma: override merges and $(/a) resolves through all levels"""
+        base = Descriptor({
+            "a": "level-1-val",
+            "l1": {
+                "l2": {
+                    "val": "original",
+                    "ref_a": "$(/a)",
+                    "ref_deep": "$(/l1/l2/val)",
+                },
+            },
+        })
+        ovr = Descriptor({
+            "a": "level-2-val",
+            "l1": {
+                "l2": {
+                    "val": "overridden",
+                },
+            },
+        })
+
+        result = base.override_by(ovr)
+
+        assert result.as_str("a") == "level-2-val"
+        assert result.as_str("l1/l2/val") == "overridden"
+        assert result.as_str("l1/l2/ref_a") == "level-2-val"      # $(/a) → level-2
+        assert result.as_str("l1/l2/ref_deep") == "overridden"     # $(/l1/l2/val) → overridden
+
+    def test_10_vareval_with_composite_expression(self):
+        """Variable expression embedded in a larger string resolves to level-2 value"""
+        base = Descriptor({
+            "a": "level-2",
+            "prefix": "base",
+            "msg": "Hello from $(/a) at $(/prefix)",
+        })
+        ovr = Descriptor({
+            "a": "PROD",
+            "prefix": "server-01",
+        })
+
+        result = base.override_by(ovr)
+
+        assert result.as_str("msg") == "Hello from PROD at server-01"
+
+    def test_11_override_by_with_dict_not_descriptor(self):
+        """override_by accepts a raw dict as well; $(/a) still resolves in overridden state"""
+        base = Descriptor({
+            "a": "level-1-val",
+            "ref": "$(/a)",
+        })
+
+        result = base.override_by({"a": "level-2-val"})
+
+        assert result.as_str("a") == "level-2-val"
+        assert result.as_str("ref") == "level-2-val"
+
+    def test_12_stop_pragma_on_root_preserves_all_vareval(self):
+        """stop at root level: nothing changes, all $(/a) refs see level-1"""
+        base = Descriptor({
+            "_override": "stop",
+            "a": "level-1-val",
+            "data": {"ref": "$(/a)", "x": 10},
+        })
+
+        result = base.override_by({"a": "level-2-val", "data": {"x": 99}})
+
+        assert result.as_str("a") == "level-1-val"
+        assert result.as_str("data/x") == "10"
+        assert result.as_str("data/ref") == "level-1-val"

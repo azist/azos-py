@@ -130,7 +130,7 @@ class PgSqlCtreeChassisDescriptorFactory(ChassisDescriptorFactory):
 
                 # Create descriptor from fetched config and override
                 override_descriptor = Descriptor(config_data)
-                result.override_by(override_descriptor)
+                result = result.override_by(override_descriptor)
 
             return result
         finally:

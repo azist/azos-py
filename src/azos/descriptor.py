@@ -172,7 +172,7 @@ class Descriptor:
         Creates a deep copy of this descriptor, including its underlying data dictionary. The cloned descriptor will
         have the same chassis, scope, and scope_path as the original descriptor.
         """
-        return self.__class__(copy.deepcopy(self._data), self._chassis, self._scope, self._scope_path)
+        return self.__class__(copy.deepcopy(self._data), self._chassis, None if self._scope is self else self._scope, self._scope_path)
 
 
     def __repr__(self) -> str:
