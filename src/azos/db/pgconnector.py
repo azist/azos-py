@@ -5,15 +5,15 @@ Copyright (C) 2011 - 2026 Azist, MIT License
 """
 
 from typing import override
-import time
 import json
-from datetime import datetime
 
 import asyncio
 import asyncpg
 
 from configparser import ConfigParser
 
+from azos.ambient import Ambient
+from azos.apm.log import LogStrand
 from azos.chassis import AppChassis, AppComponent, ChassisDescriptorFactory, expand_var_expressions as evar
 from azos.descriptor import Descriptor
 from azos.exceptions import AzosError
@@ -32,7 +32,10 @@ class PgSqlCtreeChassisDescriptorFactory(ChassisDescriptorFactory):
     `/boot/app/{app_id}` path in the tree.
 
     Cluster boots central `gov` service using this bootloader, then subsequent services obtain full
-    configuration from the `gov` service via a network call
+    configuration from the `gov` service via a network call.
+
+    ATTENTION: You MUST call this ONLY from sync application bootstrapping code (pass the instance to chassis).
+    Never call it from async code path, because it will block the event loop and cause deadlocks.
     """
 
     async def acquire_connection(self, environment: str, config: ConfigParser) -> asyncpg.Connection:
@@ -81,7 +84,7 @@ class PgSqlCtreeChassisDescriptorFactory(ChassisDescriptorFactory):
 
             # Get current time as UTC timestamp for "as of" queries
             # Note: using naive datetime to match PostgreSQL 'timestamp' type (not 'timestamptz')
-            asof_utc = datetime.fromtimestamp(time.time())
+            asof_utc = Ambient.utc_now()
 
             # Build the list of paths to fetch in order
             paths = [
@@ -170,6 +173,10 @@ class PgSqlCtreeChassisDescriptorFactory(ChassisDescriptorFactory):
 class PgConnector(AppComponent):
     """
     PostgreSQL database connector providing connection management for the application chassis.
+
+    Warning: this is an ASYNC context manager app component and it needs to be enter/exit-ed accordingly:
+    entered after construction and existed before app destruction. This component is for a single event
+    loop use, not multi-threading!!!
     """
 
     def __init__(self, chassis: AppChassis, director: AppComponent | None, config: Descriptor):
@@ -177,9 +184,27 @@ class PgConnector(AppComponent):
 
         self._cfg = config.clone()
         self._pools = {}
+        self._log = LogStrand(self.__class__.__name__)
+        self._active = False
+
+
+    @override
+    def _dispose(self):
+        alive = len(self._pools)
+        if alive > 0:
+            # Log Memory leak error
+            self._log.critical(f"Implementation error: disposing with {alive} pools!!! Must have called __aexit()__ to finalize before dispose")
+
+        self._active = False
+        super()._dispose()
 
 
     async def __aenter__(self):
+
+        self.ensure_not_disposed()
+        if self._active:
+            raise RuntimeError("__aenter()__ on already open PgConnector")
+
         pools = self._cfg.navigate_required_value("pools")
 
         if not isinstance(pools, list) or not pools:
@@ -197,7 +222,10 @@ class PgConnector(AppComponent):
             await self._close_all_pools()
             raise
 
+
+        self._active = True
         return self
+
 
     async def _close_all_pools(self):
         """
@@ -207,13 +235,14 @@ class PgConnector(AppComponent):
             try:
                 await self._close_pool(name, pool)
             except Exception:
-                # todo: log the exception for debugging purposes
-                pass # suppress exceptions during teardown to continue closing others
+                # suppress exceptions during teardown to continue closing others
+                self._log.error("Pool close leaked", exc_info=True)
         self._pools.clear()
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        await self._close_all_pools()
 
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        self._active = False
+        await self._close_all_pools()
 
 
     async def _create_pool(self, name: str, pool_config: Descriptor) -> asyncpg.pool.Pool:
@@ -227,6 +256,7 @@ class PgConnector(AppComponent):
         """
         dsn = pool_config.as_str("dsn")
         return await asyncpg.create_pool(dsn=dsn)
+
 
     async def _close_pool(self, name: str, pool: asyncpg.pool.Pool):
         """
@@ -255,9 +285,13 @@ class PgConnector(AppComponent):
         :return: An async context manager resolving to an active asyncpg.Connection instance.
         :raises ValueError: If no connection pool is found for the given name.
         """
+
+        if not self._active:
+            raise RuntimeError("get_connection() on closed PgConnector")
+
         pool = self._pools.get(name, None)
 
         if pool is None:
-            raise ValueError(f"No connection pool found for name: {name}")
+            raise ValueError(f"No connection pool named: `{name}`")
 
         return pool.acquire()
