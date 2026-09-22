@@ -254,8 +254,12 @@ class PgConnector(AppComponent):
         :param pool_config: The configuration descriptor for the pool.
         :return: An asyncpg.pool.Pool instance.
         """
-        dsn = pool_config.as_str("dsn")
-        return await asyncpg.create_pool(dsn=dsn)
+        return await asyncpg.create_pool(dsn=pool_config.as_str("dsn"),
+                                         min_size=pool_config.as_int("min-size") or 1,
+                                         max_size=pool_config.as_int("max-size") or 2,
+                                         timeout=pool_config.as_float("timeout") or 10.5,
+                                         max_queries=pool_config.as_int("max-queries") or 500,
+                                         max_inactive_connection_lifetime=pool_config.as_float("inactive-lifetime") or 45.5)
 
 
     async def _close_pool(self, name: str, pool: asyncpg.pool.Pool):
