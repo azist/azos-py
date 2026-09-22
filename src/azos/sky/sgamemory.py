@@ -21,7 +21,10 @@ Copyright (C) 2020 - 2026 Azist, MIT License
 """
 
 
+from asyncio import Event
 from dataclasses import dataclass
+from random import uniform
+from typing import override
 
 from azos.exceptions import Validol
 from azos.apm.log import LogStrand, LOG_CHANNEL_ANL
@@ -114,20 +117,41 @@ class RamSlotData:
     description: str
 
 
-
 class SGAMemory(AsyncDaemon):
     """
-    Implements a distributed memory structure that allows for efficient sharing of OS-like control data across
+    Implements an abstraction for a distributed memory structure that provides OS kernel-like  control data across
     multiple nodes in a cluster, such as:
+
         - mutexes/semaphores for inter-process coordination
-        - completion ports/mail slots
+        - completion data slots
         - tasks with slices for distributed processing
         - fibers for cooperative multitasking
+
+    Concrete implementations derive from this class and provide physical mechanisms of storage, such as
+    storing data in RDBMS or NoSQL/memory data stores
     """
 
     def __init__(self, chassis: AppChassis, director: AppComponent | None = None) -> None:
         super().__init__(chassis, director)
         self._anl = LogStrand("SGAMemory", channel=LOG_CHANNEL_ANL)
+
+
+    @property
+    @override
+    def interval_s(self) -> float:
+        return uniform(20, 60)
+
+
+    @override
+    async def do_work(self, stop_event: Event) -> None:
+        # This needs to be proxied by if self.Drop_Mutexes
+        await self.drop_expired_mutexes()
+
+
+    async def drop_expired_mutexes(self):
+        """Drops all mutexes that reached past EOL and never released"""
+        if not self.is_daemon_active: return
+        ...
 
 
     async def task_slice_acquire(self, app: str, component: str) -> TaskSliceHandle | None:
@@ -137,6 +161,7 @@ class SGAMemory(AsyncDaemon):
         and you must pair the call with `task_slice_release_ok` or `task_slice_release_failed` to release the slice back
         to SGA ASAP.
         """
+        if not self.is_daemon_active: return None
         ...
 
 
@@ -144,6 +169,7 @@ class SGAMemory(AsyncDaemon):
         """
         Releases the slice back to SGA and marks it as failed, so that it can be retried later.
         """
+        if not self.is_daemon_active: return
         ...
 
 
@@ -152,15 +178,18 @@ class SGAMemory(AsyncDaemon):
         Releases the slice back to SGA and marks it as completed successfully, so that it can stop being considered
         for future work. The result is set on a slice level if any
         """
+        if not self.is_daemon_active: return
         ...
 
 
-    async def mutex_set(self, args: MutexSetArgs) -> MutexHandle:
+    async def mutex_set(self, args: MutexSetArgs) -> MutexHandle | None:
         """
         Sets the mutex or throws if the mutex is already set by another process.
         The mutex is auto-released after the timeout expires, so you must call `mutex_release` to release it
         early if you are done with it.
+        None is returned if the system can not set mutexes now, e.g. shutting down
         """
+        if not self.is_daemon_active: return None
         ...
 
 
@@ -169,15 +198,21 @@ class SGAMemory(AsyncDaemon):
         Releases the mutex. True if it was released, False if not found/already released.
         Only the process (identified by app id) that set the mutex can release it, otherwise it is "not found" and False is returned.
         """
+        if not self.is_daemon_active: return False
+        ...
+        return True
+
+    async def ram_slot_set(self, args: RamSlotSetArgs) -> RamSlotData | None:
+        """Sets the RAM slot record or throws if bad data. None if system is shutting down"""
+        if not self.is_daemon_active: return None
         ...
 
-    async def ram_slot_set(self, args: RamSlotSetArgs) -> RamSlotData:
-        """Sets the RAM slot record or throws if bad data"""
-        ...
-
-    async def ram_slot_get(self, args: RamSlotGetArgs) -> RamSlotData:
+    async def ram_slot_get(self, args: RamSlotGetArgs) -> RamSlotData | None:
+        if not self.is_daemon_active: return None
         ...
 
     async def ram_slot_delete(self, args: RamSlotGetArgs) -> bool:
         """Deletes the RAM slot record. Returns True if deleted, False if not found"""
+        if not self.is_daemon_active: return False
         ...
+        return True

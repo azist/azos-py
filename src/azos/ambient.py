@@ -5,6 +5,9 @@ Copyright (C) 2018 - 2026 Azist, MIT License
 """
 
 import contextvars
+from datetime import datetime, timezone
+import time
+
 from azos.sec.user import User
 from azos.sec.user import Session
 
@@ -19,6 +22,22 @@ class Ambient:
     """
 
     _session = contextvars.ContextVar("ambient_session", default=Session.nop())
+
+
+    @staticmethod
+    def utc_ts() -> float:
+        """Returns UTC Now as float timestamp with fractions of a second represented as float part"""
+        return time.time()
+
+
+    @staticmethod
+    def utc_now(tz: bool = False) -> datetime:
+        """Returns UTC Now as `datetime` with or without `tzUTC`"""
+        if tz:
+            return datetime.fromtimestamp(time.time(), tz=timezone.utc)
+        else:
+            return datetime.fromtimestamp(time.time(), tz=timezone.utc).replace(tzinfo=None)
+
 
     @staticmethod
     def get_session() -> Session:
