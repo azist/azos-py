@@ -1,24 +1,26 @@
 
 import asyncio
 from typing import override
+from random import uniform
 
 import azos.apm.log
 from azos.chassis import AppChassis
 from azos.conio import ANSIColors, highlight_json
 from azos.daemons import AsyncDaemon
+from azos.ambient import Ambient
 
 class MyDaemon(AsyncDaemon):
     @property
     @override
     def interval_s(self) -> float:
-        return 3.0 # once a second
+        return uniform(0.5, 1.5) # once a second
 
     async def __aexit__(self, exc_type, exc_value, traceback) -> None:
         print("MyDaemon is shutting down...")
         await super().__aexit__(exc_type, exc_value, traceback)
 
     async def do_work(self, stop_event: asyncio.Event) -> None:
-        print("MyDaemon is working...")
+        print(f"MyDaemon is working...{Ambient.utc_now()}")
 
 
 

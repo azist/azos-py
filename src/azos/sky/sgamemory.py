@@ -119,22 +119,28 @@ class RamSlotData:
 
 class SGAMemory(AsyncDaemon):
     """
-    Implements a distributed memory structure that allows for efficient sharing of OS-like control data across
+    Implements an abstraction for a distributed memory structure that provides OS kernel-like  control data across
     multiple nodes in a cluster, such as:
+
         - mutexes/semaphores for inter-process coordination
-        - completion ports/mail slots
+        - completion data slots
         - tasks with slices for distributed processing
         - fibers for cooperative multitasking
+
+    Concrete implementations derive from this class and provide physical mechanisms of storage, such as
+    storing data in RDBMS or NoSQL/memory data stores
     """
 
     def __init__(self, chassis: AppChassis, director: AppComponent | None = None) -> None:
         super().__init__(chassis, director)
         self._anl = LogStrand("SGAMemory", channel=LOG_CHANNEL_ANL)
 
+
     @property
     @override
     def interval_s(self) -> float:
         return uniform(20, 60)
+
 
     @override
     async def do_work(self, stop_event: Event) -> None:

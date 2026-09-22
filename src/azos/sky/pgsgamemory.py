@@ -13,6 +13,10 @@ from azos.db.pgconnector import PgConnector
 
 
 class PgSGAMemory(SGAMemory):
+    """
+    Provides SGA memory implementation based on PG SQL backing store which keeps memory structures
+    such as: tasks, slices, mutexes and completion slots in RDBMS tables in PG SQL database
+    """
 
     def __init__(self, chassis: AppChassis, director: AppComponent | None = None) -> None:
         super().__init__(chassis, director)
