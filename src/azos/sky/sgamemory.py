@@ -53,24 +53,21 @@ class TaskSliceHandle:
 @dataclass(frozen=True, slots=True)
 class MutexSetArgs:
     """Represents a set mutex record in SGA akin to a distributed memory mutex pointer"""
-    app: str
-    host: str
-    # --------
-    table: str  #pk
+    owner_app: str
+    owner_cmp: str
+    ns: str  #pk
     key:   str  #pk
     value: dict
     timeout: float
-    component: str
     description: str
 
     def __post_init__(self):
         Validol(self) \
-          .is_str('app', True, 1, sz.APP_NAME_MAX_LEN) \
-          .is_str('host', True, 1, sz.HOST_MAX_LEN) \
-          .is_str('table', True, 1, sz.NS_NAME_MAX_LEN) \
+          .is_str('owner_app', True, 1, sz.APP_NAME_MAX_LEN) \
+          .is_str('owner_cmp', True, 1, sz.APP_COMPONENT_MAX_LEN) \
+          .is_str('ns', True, 1, sz.NS_NAME_MAX_LEN) \
           .is_str('key', True, 1, sz.MUTEX_KEY_MAX_LEN) \
-          .test('Value', lambda v: isinstance(v.target.value, dict) and len(v.target.value) < sz.MUTEX_VALUE_MAX_ITEMS) \
-          .is_str('component', True, 1, sz.APP_COMPONENT_MAX_LEN) \
+          .test('value', lambda v: isinstance(v.target.value, dict) and len(v.target.value) < sz.MUTEX_VALUE_MAX_ITEMS) \
           .is_str('description', True, 1, sz.DESCRIPTION_MAX_LEN) \
           .is_float('timeout', True, 0.1, sz.MUTEX_MAX_TIMEOUT_SEC) \
           .throw()
