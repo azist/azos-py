@@ -75,6 +75,8 @@ create unlogged table tbl_mutex
     constraint chk_mutex_value_max_1mb check (octet_length("value") <= 1048576)
 );
 
+-- NO Additional indexes ON PURPOSE!!!
+comment on table tbl_mutex is 'Mutex table holds ephemeral [NS:KEY -> Value] tuples used for process coordination via mutual exclusion';
 comment on column tbl_mutex."gdid"        is 'Unique GDID - PK';
 comment on column tbl_mutex."owner_app"   is 'Process app id that owns the mutex';
 comment on column tbl_mutex."owner_cmp"   is 'Component id that owns the mutex';
@@ -90,28 +92,58 @@ comment on column tbl_mutex."value"       is 'Value for the key in the namespace
 
 
 
-create table tbl_ram_slot
+
+-- Slot table holds a limited set of rows (< 10k) each representing a [NS:KEY -> Value] tuple.
+-- If the [NS:KEY] already exists the system replaces the value (unlike the mutex which throws).
+-- You can set optional `end_utc` to auto-expire the slot.
+-- Slots are used as cluster-global memory addressable by [NS:KEY]. It is a regular LOGGED table (unlike mutex).
+-- Slots do NOT provide any synchronization, so your process needs to use global memory under a MUTEX
+-- critical section block, otherwise other process may mutate the same slot which may be a desired
+-- behavior for some speculative algorithms built for performance, such as "the last wins".
+create table tbl_slot
 (
-    "table"       varchar(128)   not null,
-    "key"         varchar(128)   not null,
-    "value"       jsonb          not null,
-    "timeout"     double precision not null,
-    "component"   varchar(128)   not null,
-    "description" varchar(256)   not null,
+    "gdid"        bigint         not null, -- Unique GDID - PK
+    "set_app"     varchar(32)    not null, -- Process app id that set the slot
+    "set_cmp"     varchar(128)   not null, -- Component id that set the slot
+    "set_host"    varchar(128)   not null, -- Host name that set the slot
+    "set_utc"     timestamp      not null, -- When slot was set
+    "set_actor"   varchar(128)   not null, -- Entity id - who set the slot (user id etc..)
+    "set_origin"  bigint         not null, -- Cloud origin where slot was set (datacenter id)
+    "end_utc"     timestamp,               -- Absolute point in time after which slot gets deleted (this-set_utc) = timeout
+    "description" varchar(256)   not null, -- Display description line for debugging
 
-    -- System columns for versioning
-    "ver_state"   char(1)        not null,
-    "ver_utc"     timestamp      not null,
-    "ver_actor"   varchar(128)   not null,
-    "ver_origin"  bigint         not null,
+    "ns"          varchar(128)   not null, -- Slot namespace
+    "key"         varchar(256)   not null, -- Unique Key in the namespace
+    "value"       jsonb          not null, -- Value for the key in the namespace
 
-    primary key ("table", "key"),
 
+    constraint "pk_slot" primary key ("gdid"),
+    constraint "uk_slot" unique ("ns", "key"),
     -- Enforce a 1 MB ceiling on the serialized JSON payload size.
-    constraint chk_ram_slot_value_max_1mb check (octet_length("value") <= 1048576)
-)
+    -- jsonb is a varlena type capped at ~1 GB; this constraint bounds it
+    -- to 1 MB (1048576 bytes) to protect the SGA memory engine.
+    constraint chk_slot_value_max_1mb check (octet_length("value") <= 1048576)
+);
+
+-- NO Additional indexes ON PURPOSE!!!
+comment on table tbl_slot is 'Slot table holds cluster global [NS:KEY -> Value] tuples';
+comment on column tbl_slot."gdid"        is 'Unique GDID - PK';
+comment on column tbl_slot."set_app"     is 'Process app id that set the slot';
+comment on column tbl_slot."set_cmp"     is 'Component id that set the slot';
+comment on column tbl_slot."set_host"    is 'Host name that set the slot';
+comment on column tbl_slot."set_utc"     is 'When slot was set';
+comment on column tbl_slot."set_actor"   is 'Entity id - who set the slot (user id etc..)';
+comment on column tbl_slot."set_origin"  is 'Cloud origin where slot was set (datacenter id)';
+comment on column tbl_slot."end_utc"     is 'Absolute point in time after which slot gets deleted (this-set_utc) = timeout';
+comment on column tbl_slot."description" is 'Display description line for debugging';
+comment on column tbl_slot."ns"          is 'Slot namespace';
+comment on column tbl_slot."key"         is 'Unique Key in the namespace';
+comment on column tbl_slot."value"       is 'Value for the key in the namespace';
 
 
+
+
+-- UNDER construction
 create table tbl_task
 (
     "gdid"        bigint         not null,
@@ -129,7 +161,7 @@ create table tbl_task
     primary key ("name")
 )
 
-
+-- UNDER construction
 create table tbl_taskslice
 (
 
