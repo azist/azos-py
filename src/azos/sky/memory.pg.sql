@@ -142,27 +142,56 @@ comment on column tbl_slot."value"       is 'Value for the key in the namespace'
 
 
 
-
--- UNDER construction
+-- Task
 create table tbl_task
 (
-    "gdid"        bigint         not null,
-    "name"        varchar(128)   not null,
-    "owner"       varchar(128)   not null,
-    "timeout"     double precision not null,
-    "schedule_utc" timestamp      not null,
+    "gdid"        bigint         not null, -- Task unique ID
+    "ctag"        uuid           not null, -- Task correlation tag
+    "title"       varchar(64)    not null, -- Task title used for admin purposes
+    "app"         varchar(32)    not null, -- Application to execute
+    "cmp"         varchar(128)   not null, -- Application component within application to execute
+    "nice"        int            not null, -- Task niceness similar to .NIX
+    "sd_utc"      timestamp      not null, -- Start date: task can not start before this date
+    "ed_utc"      timestamp      not null, -- After this date task would not run. If it has not started it will become stale
+    "g_antecedent"   bigint,               -- Optional task which acts as a guard that prevents execution of this one until it is done
+    "exec_actor"  varchar(128)   not null, -- Security principal on behalf of which the task executes
 
-    -- System columns for versioning
-    "ver_state"   char(1)        not null,
-    "ver_utc"     timestamp      not null,
-    "ver_actor"   varchar(128)   not null,
-    "ver_origin"  bigint         not null,
+    "status"      char(1)        not null, -- [C]created, [R]running, [S]succeeded, [F]failed
+    "status_msg"  varchar(64),             -- Optional status message for admin/debug purposes
+    "status_utc"  timestamp      not null, -- the UTc stamp as of which the status is set
 
-    primary key ("name")
-)
+    "target_id"   varchar(128)   not null, -- target context ID, such as a FILE to process
+    "args"        jsonb          not null, -- Task Arguments
+    "result"      jsonb,                   -- Task execution result, error if [Failed] or non error is [Succeeded]
+
+    "crt_app"     varchar(32)    not null, -- Process app id that created the task
+    "crt_cmp"     varchar(128)   not null, -- Component id that created the task
+    "crt_host"    varchar(128)   not null, -- Host name that created the task
+    "crt_utc"     timestamp      not null, -- When task was created
+    "crt_actor"   varchar(128)   not null, -- Entity id - who created the task (user id etc..)
+    "crt_origin"  bigint         not null, -- Cloud origin where task was created (datacenter id)
+
+    constraint "pk_task" primary key ("gdid"),
+    constraint "fk_task_antecedent" foreign key ("g_antecedent") references "tbl_task"("gdid")
+);
+
+-- Index on SD
 
 -- UNDER construction
 create table tbl_taskslice
 (
+    "gdid"        bigint         not null, -- Task Slice unique ID
+    "g_task"      bigint         not null, -- FK Task
+    "seq"         int            not null, -- Slice sequence number within task
+    "status"      char(1)        not null, -- [C]created, [R]running, [S]succeeded, [F]failed
+    "args"        jsonb          not null,
+    "result"      jsonb,
 
-)
+    "start_host"  varchar(128)   not null, -- Host name that started execution
+    "start_utc"   timestamp,               -- When slice was started
+    "end_utc"     timestamp,               -- When slice was completed (succeeded or failed)
+
+    constraint "pk_taskslice" primary key ("gdid"),
+    constraint "uk_taskslice" unique ("g_task", "seq"),
+    constraint "fk_taskslice_task" foreign key ("g_task") references "tbl_task"("gdid")
+);

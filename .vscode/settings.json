@@ -40,6 +40,7 @@
         "startable",
         "Sysdat",
         "sysdba",
+        "taskslice",
         "Validol"
     ],
     "workbench.tree.indent": 28,
