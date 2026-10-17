@@ -64,15 +64,11 @@ create unlogged table tbl_mutex
 
     "ns"          varchar(128)   not null, -- Mutex namespace
     "key"         varchar(256)   not null, -- Unique Key in the namespace
-    "value"       jsonb          not null, -- Value for the key in the namespace
+    "value"       varchar(8192)  not null, -- Value for the key in the namespace
 
 
     constraint "pk_mutex" primary key ("gdid"),
-    constraint "uk_mutex" unique ("ns", "key"),
-    -- Enforce a 1 MB ceiling on the serialized JSON payload size.
-    -- jsonb is a varlena type capped at ~1 GB; this constraint bounds it
-    -- to 1 MB (1048576 bytes) to protect the SGA memory engine.
-    constraint chk_mutex_value_max_1mb check (octet_length("value") <= 1048576)
+    constraint "uk_mutex" unique ("ns", "key")
 );
 
 -- NO Additional indexes ON PURPOSE!!!

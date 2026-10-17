@@ -67,7 +67,7 @@ class MutexSetArgs:
           .is_str('owner_cmp', True, 1, sz.APP_COMPONENT_MAX_LEN) \
           .is_str('ns', True, 1, sz.NS_NAME_MAX_LEN) \
           .is_str('key', True, 1, sz.MUTEX_KEY_MAX_LEN) \
-          .test('value', lambda v: isinstance(v.target.value, dict) and len(v.target.value) < sz.MUTEX_VALUE_MAX_ITEMS) \
+          .is_str('value', True, 1, sz.MUTEX_VALUE_MAX_LEN) \
           .is_str('description', True, 1, sz.DESCRIPTION_MAX_LEN) \
           .is_float('timeout', True, 0.1, sz.MUTEX_MAX_TIMEOUT_SEC) \
           .throw()
@@ -199,14 +199,17 @@ class SGAMemory(AsyncDaemon):
         ...
         return True
 
+
     async def ram_slot_set(self, args: RamSlotSetArgs) -> RamSlotData | None:
         """Sets the RAM slot record or throws if bad data. None if system is shutting down"""
         if not self.is_daemon_active: return None
         ...
 
+
     async def ram_slot_get(self, args: RamSlotGetArgs) -> RamSlotData | None:
         if not self.is_daemon_active: return None
         ...
+
 
     async def ram_slot_delete(self, args: RamSlotGetArgs) -> bool:
         """Deletes the RAM slot record. Returns True if deleted, False if not found"""
