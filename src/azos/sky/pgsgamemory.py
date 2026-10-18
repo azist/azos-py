@@ -1,11 +1,11 @@
 """
-Implements SGAMemory using PG SQL
+Provides `PgSGAMemory` implementing `SGAMemory` base class using Postgres SQL
 
 Copyright (C) 2020 - 2026 Azist, MIT License
 """
 
-import json
 from datetime import timedelta
+from time import perf_counter
 from typing import override
 
 import asyncpg
@@ -23,6 +23,18 @@ from azos.sky.sgamemory import MutexHandle, MutexSetArgs, SGAMemory
 # Name of the PgConnector pool used for SGA memory operations
 SGA_MEMORY_POOL_NAME = "sga-memory"
 
+# Inserts a new mutex record. Fails with a unique violation if [ns, key] already exists.
+SQL_MUTEX_SET = '''INSERT INTO tbl_mutex
+("gdid", "owner_app", "owner_cmp", "set_host", "set_utc", "set_actor","set_origin", "end_utc", "description", "ns", "key", "value")
+VALUES
+($gdid, $owner_app, $owner_cmp, $set_host, $set_utc, $set_actor, $set_origin, $end_utc, $description, $ns, $key, $value)'''
+
+# Deletes a mutex record by its GDID. Returns the deleted GDID or nothing if not found.
+SQL_MUTEX_RELEASE = 'DELETE FROM tbl_mutex WHERE "gdid" = $gdid RETURNING "gdid"'
+
+# Deletes all mutexes that reached past their EOL and returns the count of dropped rows.
+SQL_MUTEX_DROP_EXPIRED = '''WITH deleted AS (DELETE FROM tbl_mutex WHERE "end_utc" < $now RETURNING "gdid")
+SELECT count(*) FROM deleted'''
 
 
 class PgSGAMemory(SGAMemory):
@@ -64,22 +76,13 @@ class PgSGAMemory(SGAMemory):
         set_utc = Ambient.utc_now()
         end_utc = set_utc + timedelta(seconds=args.timeout)
 
-        sql = """
-            INSERT INTO tbl_mutex
-                ("gdid", "owner_app", "owner_cmp", "set_host", "set_utc", "set_actor",
-                 "set_origin", "end_utc", "description", "ns", "key", "value")
-            VALUES
-                ($gdid, $owner_app, $owner_cmp, $set_host, $set_utc, $set_actor,
-                 $set_origin, $end_utc, $description, $ns, $key, $value)
-        """
-
         gdid = self._gdid.generate("sga::tbl_mutex")
 
         try:
             # pg connection stores prepared statements automatically
             async with self._pgc.get_connection(SGA_MEMORY_POOL_NAME) as conn:
                 await conn.execute(
-                    sql,
+                    SQL_MUTEX_SET,
                     gdid=gdid,
                     owner_app=args.owner_app,
                     owner_cmp=args.owner_cmp,
@@ -107,14 +110,25 @@ class PgSGAMemory(SGAMemory):
     async def mutex_release(self, handle: MutexHandle) -> bool | None:
         """
         Releases the mutex. True if it was released, False if not found/already released.
-        Only the process (identified by app id) that set the mutex can release it, otherwise it is "not found" and False is returned.
         """
         if not self.is_daemon_active or self._pgc is None:
             return None
 
-        sql = """ DELETE FROM tbl_mutex WHERE "gdid" = $gdid RETURNING "gdid" """
-
         async with self._pgc.get_connection(SGA_MEMORY_POOL_NAME) as conn:
-            row = await conn.fetchval(sql, gdid=handle.g_mutex)
+            was = await conn.fetchval(SQL_MUTEX_RELEASE, gdid=handle.g_mutex)
 
-        return row is not None
+        return was is not None
+
+    @override
+    async def drop_expired_mutexes(self):
+        """Drops all mutexes that reached past EOL and never released"""
+        if not self.is_daemon_active or self._pgc is None:
+            return
+
+        started = perf_counter()
+        async with self._pgc.get_connection(SGA_MEMORY_POOL_NAME) as conn:
+            count = await conn.fetchval(SQL_MUTEX_DROP_EXPIRED, now=Ambient.utc_now())
+        elapsed_ms = (perf_counter() - started) * 1000
+
+        if count:
+            self._log.info(f"Dropped {count} expired mutexes in {elapsed_ms:.2f} ms")
