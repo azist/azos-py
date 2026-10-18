@@ -57,7 +57,7 @@ class MutexSetArgs:
     owner_cmp: str
     ns: str  #pk
     key:   str  #pk
-    value: dict
+    value: str
     timeout: float
     description: str
 
@@ -67,7 +67,7 @@ class MutexSetArgs:
           .is_str('owner_cmp', True, 1, sz.APP_COMPONENT_MAX_LEN) \
           .is_str('ns', True, 1, sz.NS_NAME_MAX_LEN) \
           .is_str('key', True, 1, sz.MUTEX_KEY_MAX_LEN) \
-          .test('value', lambda v: isinstance(v.target.value, dict) and len(v.target.value) < sz.MUTEX_VALUE_MAX_ITEMS) \
+          .is_str('value', True, 1, sz.MUTEX_VALUE_MAX_LEN) \
           .is_str('description', True, 1, sz.DESCRIPTION_MAX_LEN) \
           .is_float('timeout', True, 0.1, sz.MUTEX_MAX_TIMEOUT_SEC) \
           .throw()
@@ -190,23 +190,25 @@ class SGAMemory(AsyncDaemon):
         ...
 
 
-    async def mutex_release(self, handle: MutexHandle) -> bool:
+    async def mutex_release(self, handle: MutexHandle) -> bool | None:
         """
         Releases the mutex. True if it was released, False if not found/already released.
-        Only the process (identified by app id) that set the mutex can release it, otherwise it is "not found" and False is returned.
         """
-        if not self.is_daemon_active: return False
+        if not self.is_daemon_active: return None
         ...
         return True
+
 
     async def ram_slot_set(self, args: RamSlotSetArgs) -> RamSlotData | None:
         """Sets the RAM slot record or throws if bad data. None if system is shutting down"""
         if not self.is_daemon_active: return None
         ...
 
+
     async def ram_slot_get(self, args: RamSlotGetArgs) -> RamSlotData | None:
         if not self.is_daemon_active: return None
         ...
+
 
     async def ram_slot_delete(self, args: RamSlotGetArgs) -> bool:
         """Deletes the RAM slot record. Returns True if deleted, False if not found"""

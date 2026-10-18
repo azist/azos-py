@@ -6,6 +6,7 @@
         "./tests"
     ],
     "cSpell.words": [
+        "aencode",
         "asof",
         "Azist",
         "azos",
@@ -20,6 +21,7 @@
         "excs",
         "factoryutils",
         "fetchrow",
+        "fetchval",
         "finalizer",
         "fval",
         "GDID",
@@ -34,12 +36,14 @@
         "psql",
         "RDBMS",
         "reated",
+        "runas",
         "segs",
         "setuptools",
         "sgamemory",
         "startable",
         "Sysdat",
         "sysdba",
+        "taskslice",
         "Validol"
     ],
     "workbench.tree.indent": 28,
