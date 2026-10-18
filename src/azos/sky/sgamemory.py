@@ -57,7 +57,7 @@ class MutexSetArgs:
     owner_cmp: str
     ns: str  #pk
     key:   str  #pk
-    value: dict
+    value: str
     timeout: float
     description: str
 
@@ -190,12 +190,11 @@ class SGAMemory(AsyncDaemon):
         ...
 
 
-    async def mutex_release(self, handle: MutexHandle) -> bool:
+    async def mutex_release(self, handle: MutexHandle) -> bool | None:
         """
         Releases the mutex. True if it was released, False if not found/already released.
-        Only the process (identified by app id) that set the mutex can release it, otherwise it is "not found" and False is returned.
         """
-        if not self.is_daemon_active: return False
+        if not self.is_daemon_active: return None
         ...
         return True
 

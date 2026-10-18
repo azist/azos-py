@@ -15,15 +15,14 @@ from azos.chassis import AppChassis, AppComponent
 from azos.daemons import IAsyncDaemonControl
 from azos.db.pgconnector import PgConnector
 from azos.exceptions import AzosError
-from azos.gdid8 import GDID8, GDIDGenerator
+from azos.gdid8 import GDIDGenerator
+import azos.sky.constraints as sz
 from azos.sky.sgamemory import MutexHandle, MutexSetArgs, SGAMemory
 
 
 # Name of the PgConnector pool used for SGA memory operations
-SGA_POOL_NAME = "sga"
+SGA_MEMORY_POOL_NAME = "sga-memory"
 
-# Fallback GDID8 generator used when no GDIDGenerator is registered in the chassis DI
-_FALLBACK_GDID = GDID8(0)
 
 
 class PgSGAMemory(SGAMemory):
@@ -39,7 +38,7 @@ class PgSGAMemory(SGAMemory):
 
     @override
     async def __aenter__(self) -> IAsyncDaemonControl:
-        # Lazy link module dependency using service location
+        # Lazy link module dependencies using service location
         self._pgc = self.chassis.deps.get(PgConnector)
         self._gdid = self.chassis.deps.get(GDIDGenerator)
         return await super().__aenter__()
@@ -78,7 +77,7 @@ class PgSGAMemory(SGAMemory):
 
         try:
             # pg connection stores prepared statements automatically
-            async with self._pgc.get_connection(SGA_POOL_NAME) as conn:
+            async with self._pgc.get_connection(SGA_MEMORY_POOL_NAME) as conn:
                 await conn.execute(
                     sql,
                     gdid=gdid,
@@ -86,7 +85,7 @@ class PgSGAMemory(SGAMemory):
                     owner_cmp=args.owner_cmp,
                     set_host=self.chassis.host,
                     set_utc=set_utc,
-                    set_actor=Ambient.get_user().name,
+                    set_actor=Ambient.get_user().name[:sz.ENTITY_ID_MAX_LEN],
                     set_origin=self.chassis.origin,
                     end_utc=end_utc,
                     description=args.description,
@@ -96,7 +95,7 @@ class PgSGAMemory(SGAMemory):
                 )
         except asyncpg.exceptions.UniqueViolationError as cause:
             raise AzosError(
-                message=f"Mutex is already set: ns=`{args.ns}` key=`{args.key}`",
+                message=f"Mutex violation: ns=`{args.ns}` key=`{args.key}`",
                 topic="sgamemory",
                 frm=f"mutex_set(ns=`{args.ns}`, key=`{args.key}`)",
                 src=429,
@@ -105,21 +104,17 @@ class PgSGAMemory(SGAMemory):
         return MutexHandle(g_mutex=gdid)
 
     @override
-    async def mutex_release(self, handle: MutexHandle) -> bool:
+    async def mutex_release(self, handle: MutexHandle) -> bool | None:
         """
         Releases the mutex. True if it was released, False if not found/already released.
         Only the process (identified by app id) that set the mutex can release it, otherwise it is "not found" and False is returned.
         """
         if not self.is_daemon_active or self._pgc is None:
-            return False
+            return None
 
-        sql = """
-            DELETE FROM tbl_mutex
-            WHERE "gdid" = $gdid AND "owner_app" = $owner_app
-            RETURNING "gdid"
-        """
+        sql = """ DELETE FROM tbl_mutex WHERE "gdid" = $gdid RETURNING "gdid" """
 
-        async with self._pgc.get_connection(SGA_POOL_NAME) as conn:
-            row = await conn.fetchval(sql, gdid=handle.g_mutex, owner_app=self.chassis.app)
+        async with self._pgc.get_connection(SGA_MEMORY_POOL_NAME) as conn:
+            row = await conn.fetchval(sql, gdid=handle.g_mutex)
 
         return row is not None

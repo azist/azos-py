@@ -6,6 +6,7 @@
         "./tests"
     ],
     "cSpell.words": [
+        "aencode",
         "asof",
         "Azist",
         "azos",
@@ -20,6 +21,7 @@
         "excs",
         "factoryutils",
         "fetchrow",
+        "fetchval",
         "finalizer",
         "fval",
         "GDID",

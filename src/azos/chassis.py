@@ -23,6 +23,7 @@ from typing import (Any, Protocol, Sequence, Type, Dict, List, Optional,
 from pathlib import Path
 from configparser import ConfigParser
 
+from azos.atom import encode as aencode
 from azos.oop import DisposableObject
 from azos.stock_content import loader
 
@@ -444,6 +445,7 @@ class AppChassis(DisposableObject):
 
         super().__init__()
 
+        self._deps = DIContainer()
         self._utc_start = time() # epoch
         self._is_default = False
         self._instance_id = uuid.uuid4().hex
@@ -451,14 +453,29 @@ class AppChassis(DisposableObject):
         self._entry_point_path = os.path.abspath(ep_path)
         self._app = app_id if app_id else DEFAULT_APP_ID
         self._instance_tag = self._instance_id[:8] # Tag is a shortened app id
+        self._host = platform.node() # by default OS host name, may be overridden by config value `host` in the app section
+
+        # 1. Environment name is determined first
         self._environment = self._get_environment(environment_name)
-        self._host = platform.node()
-        self._deps = DIContainer()
-        # Must be after _env
+
+        # 2. Must be after _env so we know which config file to load,
+        # but before _descriptor so that descriptor can use config
         self._config = self._load_config(config) # use the supplied one or load co-located file
 
-        # Must be after _config is loaded
+        # 3. Must be after _config is loaded
         self._descriptor = self._load_descriptor(descriptor_factory)
+
+        # reassign host from config, because host is used in logging and other places
+        # we need to store it pre-computed
+        configured_host_name = self._config.get(self._app, "host", fallback=None)
+        if configured_host_name is not None and configured_host_name.strip() != "":
+            self._host = configured_host_name.strip()
+
+        self._origin: int = 0
+        configured_origin = self._config.get(self._app, "origin", fallback=None)
+        if configured_origin is not None:
+            # let exception float
+            self._origin = aencode(configured_origin)
 
         if AppChassis.__s_default is None:
             AppChassis.__s_default = self
@@ -642,8 +659,13 @@ class AppChassis(DisposableObject):
 
     @property
     def host(self) -> str:
-        """Returns logical host name of this machine. Defaults to physical host name"""
+        """Returns logical host name of this machine. Read from [app]host=... or defaults to physical host name"""
         return self._host
+
+    @property
+    def origin(self) -> int:
+        """Returns logical origin atom of this machine. Reads from [app]origin=atom or defaults to 0"""
+        return self._origin
 
 
     @property
