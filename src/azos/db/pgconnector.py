@@ -4,8 +4,10 @@ PostgreSQL database connector providing connection management for the applicatio
 Copyright (C) 2011 - 2026 Azist, MIT License
 """
 
+from functools import lru_cache
 from typing import override
 import json
+import re
 
 import asyncio
 import asyncpg
@@ -21,6 +23,45 @@ from azos.factoryutils import knownas
 
 
 CONFIG_SECTION = "pg-sql-chassis"
+
+_NAMED_PARAM = re.compile(r"\$([A-Za-z_][A-Za-z0-9_]*)")
+
+
+@lru_cache(maxsize=512)
+def __compile_named(sql: str) -> tuple[str, tuple[str, ...]]:
+    """
+    Converts `$name` placeholders into asyncpg positional `$N` form. Returns the translated SQL
+    and the ordered parameter names. Same name used many times maps to the same `$N`.
+    The translated text is stable per source SQL so asyncpg per-connection prepared statement cache is reused.
+    """
+    names: list[str] = []
+
+    def sub(m: re.Match) -> str:
+        name = m.group(1)
+        if name not in names:
+            names.append(name)
+        return f"${names.index(name) + 1}"
+
+    return _NAMED_PARAM.sub(sub, sql), tuple(names)
+
+
+def bind(sql: str, **params) -> tuple:
+    """
+    Binds named parameters to SQL with `$name` placeholders, returning a `(sql, *args)` tuple for asyncpg
+    positional API: `await conn.execute(*bind(SQL, a=1, b=2))`. Extra params are ignored.
+
+    :raises AzosError: if SQL references a parameter which is not supplied.
+    """
+    text, names = __compile_named(sql)
+    try:
+        return (text, *(params[n] for n in names))
+    except KeyError as e:
+        raise AzosError(
+            message=f"SQL parameter `{e.args[0]}` was not supplied",
+            topic="pgconnector",
+            frm=f"bind(params=`{', '.join(params)}`)",
+            src=0
+        ) from e
 
 
 class PgSqlCtreeChassisDescriptorFactory(ChassisDescriptorFactory):
@@ -245,6 +286,17 @@ class PgConnector(AppComponent):
         await self._close_all_pools()
 
 
+    async def _init_connection(self, conn: asyncpg.Connection):
+        """
+        Initialize a new connection with any required settings.
+        Override this method to customize connection initialization (e.g., set session variables).
+        """
+        # Example: await conn.execute("SET search_path TO my_schema")
+
+        # Register the codec for jsonb (and/or 'json') columns
+        await conn.set_type_codec("jsonb", encoder=json.dumps, decoder=json.loads, schema="pg_catalog")
+
+
     async def _create_pool(self, name: str, pool_config: Descriptor) -> asyncpg.pool.Pool:
         """
         Create a new connection pool for the given name and configuration.
@@ -259,7 +311,8 @@ class PgConnector(AppComponent):
                                          max_size=pool_config.as_int("max-size") or 2,
                                          timeout=pool_config.as_float("timeout") or 10.5,
                                          max_queries=pool_config.as_int("max-queries") or 500,
-                                         max_inactive_connection_lifetime=pool_config.as_float("inactive-lifetime") or 45.5)
+                                         max_inactive_connection_lifetime=pool_config.as_float("inactive-lifetime") or 45.5,
+                                         init=self._init_connection)
 
 
     async def _close_pool(self, name: str, pool: asyncpg.pool.Pool):
