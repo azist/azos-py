@@ -118,7 +118,7 @@ create table tbl_slot
     -- Enforce a 1 MB ceiling on the serialized JSON payload size.
     -- jsonb is a varlena type capped at ~1 GB; this constraint bounds it
     -- to 1 MB (1048576 bytes) to protect the SGA memory engine.
-    constraint chk_slot_value_max_1mb check (octet_length("value") <= 1048576)
+    constraint chk_slot_value_max_1mb check (octet_length("value"::text) <= 1048576)
 );
 
 -- NO Additional indexes ON PURPOSE!!!
