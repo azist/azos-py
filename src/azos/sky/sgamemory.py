@@ -81,37 +81,44 @@ class MutexHandle:
 
 @dataclass(frozen=True, slots=True)
 class RamSlotSetArgs:
-    table: str  #pk
+    ns: str  #pk
     key:   str  #pk
     value: dict
-    timeout: float
     component: str
     description: str
+    timeout: float | None = None  # Optional auto-expire duration in seconds; None = never expires
 
     def __post_init__(self):
         Validol(self) \
-          .is_str('table', True, 1, sz.NS_NAME_MAX_LEN) \
+          .is_str('ns', True, 1, sz.NS_NAME_MAX_LEN) \
           .is_str('key', True, 1, sz.SLOT_KEY_MAX_LEN) \
           .test('Value', lambda v: isinstance(v.target.value, dict) and len(v.target.value) < sz.SLOT_VALUE_MAX_ITEMS) \
           .is_str('component', True, 1, sz.APP_COMPONENT_MAX_LEN) \
           .is_str('description', True, 1, sz.DESCRIPTION_MAX_LEN) \
+          .is_float('timeout', False, 0.1) \
           .throw()
 
 
 @dataclass(frozen=True, slots=True)
 class RamSlotGetArgs:
-    table: str  #pk
-    key:   str  #pk
+    ns:  str  #pk
+    key: str  #pk
+
+    def __post_init__(self):
+        Validol(self) \
+          .is_str('ns', True, 1, sz.NS_NAME_MAX_LEN) \
+          .is_str('key', True, 1, sz.SLOT_KEY_MAX_LEN) \
+          .throw()
 
 
 @dataclass(frozen=True, slots=True)
 class RamSlotData:
-    table: str  #pk
+    ns: str  #pk
     key:   str  #pk
     value: dict
-    timeout: float
     component: str
     description: str
+    timeout: float | None = None  # Remaining seconds until auto-expire; None = never expires
 
 
 class SGAMemory(AsyncDaemon):
@@ -143,10 +150,17 @@ class SGAMemory(AsyncDaemon):
     async def do_work(self, stop_event: Event) -> None:
         # This needs to be proxied by if self.Drop_Mutexes
         await self.drop_expired_mutexes()
+        await self.drop_expired_slots()
 
 
     async def drop_expired_mutexes(self):
         """Drops all mutexes that reached past EOL and never released"""
+        if not self.is_daemon_active: return
+        ...
+
+
+    async def drop_expired_slots(self):
+        """Drops all slots that reached past EOL and never deleted"""
         if not self.is_daemon_active: return
         ...
 
