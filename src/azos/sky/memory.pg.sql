@@ -149,12 +149,19 @@ create table tbl_task
     "nice"        int            not null, -- Task niceness similar to .NIX
     "sd_utc"      timestamp      not null, -- Start date: task can not start before this date
     "ed_utc"      timestamp      not null, -- After this date task would not run. If it has not started it will become stale
-    "g_antecedent"   bigint,               -- Optional task which acts as a guard that prevents execution of this one until it is done
+
+    "g_antecedent"   bigint,               -- Optional task which acts as a guard that prevents execution of this one until it is completed (200 or 500).
+                                           -- This task will start execution when SD/ED allows AND the antecedent task is completed with 200 or 500 status code.
+                                           -- If antecedent task is deleted that this task will not execute and become stale
+
     "exec_actor"  varchar(128)   not null, -- Security principal on behalf of which the task executes
 
-    "status"      char(1)        not null, -- [C]created, [R]running, [S]succeeded, [F]failed
+    "status"      smallint       not null, -- 0=created, 100=running, 200=succeeded, 500=failed
     "status_msg"  varchar(64),             -- Optional status message for admin/debug purposes
     "status_utc"  timestamp      not null, -- the UTc stamp as of which the status is set
+
+-- Need to track status host, app inst, (app/cmp) already in task
+
 
     "target_id"   varchar(128)   not null, -- target context ID, such as a FILE to process
     "args"        jsonb          not null, -- Task Arguments
@@ -171,7 +178,15 @@ create table tbl_task
     constraint "fk_task_antecedent" foreign key ("g_antecedent") references "tbl_task"("gdid")
 );
 
--- Index on SD
+-- Index on date for point in time queries: find all tasks that are active at a given point in time for app/cmp
+create index "idx_task_dtappcmp_utc" on "tbl_task" ("ed_utc", "sd_utc", "app", "cmp");
+
+-- Find by correlation tag/logging
+create index "idx_task_ctag" on "tbl_task" ("ctag");
+
+-- Index on Target_id
+create index "idx_task_target_id" on "tbl_task" ("target_id");
+
 
 -- UNDER construction
 create table tbl_taskslice
@@ -179,13 +194,19 @@ create table tbl_taskslice
     "gdid"        bigint         not null, -- Task Slice unique ID
     "g_task"      bigint         not null, -- FK Task
     "seq"         int            not null, -- Slice sequence number within task
-    "status"      char(1)        not null, -- [C]created, [R]running, [S]succeeded, [F]failed
+    "status"      smallint       not null, -- 0=created, 100=running, 200=succeeded, 500=failed
+    "status_msg"  varchar(64),             -- Optional status message for admin/debug purposes
     "args"        jsonb          not null,
-    "result"      jsonb,
+    "result"      jsonb,                   -- Task execution result, error if [Failed] or non error is [Succeeded]
 
     "start_host"  varchar(128)   not null, -- Host name that started execution
     "start_utc"   timestamp,               -- When slice was started
     "end_utc"     timestamp,               -- When slice was completed (succeeded or failed)
+
+-- max-retries? backoff settings?/policies
+
+-- need to track who started: host, app instance (app/component already in task table)
+
 
     constraint "pk_taskslice" primary key ("gdid"),
     constraint "uk_taskslice" unique ("g_task", "seq"),
