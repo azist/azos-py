@@ -35,6 +35,13 @@ import azos.sky.constraints as sz
 
 
 @dataclass(frozen=True, slots=True)
+class TaskHandle:
+    """Controls a distributed task as a whole in SGA, used by task-level calls such as kill/bad request"""
+    g_task: int
+    trace_uuid: str
+
+
+@dataclass(frozen=True, slots=True)
 class TaskSliceHandle:
     """Controls distributed task slice in SGA akin to a distributed memory task pointer"""
     g_task: int
@@ -45,8 +52,9 @@ class TaskSliceHandle:
     app: str
     component: str
     runas: str
-    timeout: float
+    timeout: float  # Max run time in seconds: tbl_task.slice_timeout_sec, after which the slice is deemed abandoned
     args: Descriptor
+    run_count: int  # Execution attempt number (1 = first) assigned at acquire; used to reject stale releases
 
 
 
@@ -170,7 +178,13 @@ class SGAMemory(AsyncDaemon):
         Retrieves a slice of pending work for tasks scheduled to run by specific app and component.
         If None is returned - there is nothing pending to work on, otherwise the slice is acquired for execution
         and you must pair the call with `task_slice_release_ok` or `task_slice_release_failed` to release the slice back
-        to SGA ASAP.
+        to SGA ASAP, within the task `slice_timeout_sec` (see `TaskSliceHandle.timeout`), otherwise the slice is
+        considered abandoned and is failed/retried by the system.
+
+        Only slices of tasks in RUNNING state (100/120) whose end date has not passed are eligible:
+        slices in status 0, or in status 120 after the retry back-off elapsed, ordered by task niceness.
+        Acquire is non-blocking (`FOR UPDATE SKIP LOCKED`). It sets slice status 100 and increments `run_count`.
+        See memory.tasks.prd.md section 7.1.
         """
         if not self.is_daemon_active: return None
         ...
@@ -178,7 +192,12 @@ class SGAMemory(AsyncDaemon):
 
     async def task_slice_release_failed(self, handle: TaskSliceHandle, error: Exception) -> None:
         """
-        Releases the slice back to SGA and marks it as failed, so that it can be retried later.
+        Releases the slice back to SGA and marks it as failed. The outcome is decided atomically: if retries remain
+        (`run_count <= task.retry_limit`) the slice goes to RETRYING (120) and is re-acquirable after back-off,
+        otherwise it goes to permanently FAILED (500). The task status is NOT set here - it is stamped
+        asynchronously by the task invariant daemon.
+        A release for an attempt that is no longer current (the slice was reaped as abandoned and re-acquired) is ignored.
+        See memory.tasks.prd.md sections 5.1 and 7.3.
         """
         if not self.is_daemon_active: return
         ...
@@ -187,9 +206,35 @@ class SGAMemory(AsyncDaemon):
     async def task_slice_release_ok(self, handle: TaskSliceHandle, result: dict | None) -> None:
         """
         Releases the slice back to SGA and marks it as completed successfully, so that it can stop being considered
-        for future work. The result is set on a slice level if any
+        for future work. The result is set on a slice level if any.
+        A release for an attempt that is no longer current is ignored (memory.tasks.prd.md section 7.3).
         """
         if not self.is_daemon_active: return
+        ...
+
+
+    async def task_set_bad_request(self, handle: TaskHandle, message: str, data: dict | None = None) -> bool:
+        """
+        Terminates the whole task as invalid (status 400): its arguments are not valid in principle, e.g. unknown
+        app/component to execute, so retrying can never help. This is the "terminal exception" of the task:
+        `message` is a short summary stored (truncated to `TASK_STATUS_MSG_MAX_LEN`) as the status message;
+        `data` holds the error details (e.g. the exception) and is stored in the task `status_data`.
+        Only a task in a non-terminal status (0/100/120) is changed; slices are not touched.
+        Returns True if the task was changed, False if it does not exist or is already terminal.
+        """
+        if not self.is_daemon_active: return False
+        ...
+
+
+    async def task_kill(self, handle: TaskHandle, message: str, data: dict | None = None) -> bool:
+        """
+        Terminates the whole task by KILL signal (status 550). Only a task in a non-terminal status (0/100/120) is changed;
+        slices are not touched: slices not started stay as-is, in-flight ones finish without affecting the task.
+        `message` is a short summary stored (truncated to `TASK_STATUS_MSG_MAX_LEN`) as the status message;
+        optional `data` is stored in the task `status_data`.
+        Returns True if the task was changed, False if it does not exist or is already terminal.
+        """
+        if not self.is_daemon_active: return False
         ...
 
 

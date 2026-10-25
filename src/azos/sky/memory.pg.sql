@@ -174,29 +174,39 @@ create table tbl_task
                                            -- If 0 then no automatic retries are attempted, if 1 then one retry is attempted, etc.
 
 
-    "g_antecedent"   bigint,               -- Optional task which acts as a guard that prevents execution of this one until it is completed (200 or 400/500).
-                                           -- This task will start execution when SD/ED allows AND the antecedent task is completed with 200 or 500 status code.
-                                           -- If antecedent task is deleted than this task will not execute and become stale
-    "antecedent_success" boolean not null, -- True then only antecedent success (200) allows this task to run, false then antecedent failure (400/500) also allows this task to run
+    "slice_timeout_sec" int      not null, -- Max run time of any one slice execution, in seconds (1..86400), same for all slices of the task.
+                                           -- A slice that stays in status 100 longer than this since start_utc is considered abandoned by a dead worker
+                                           -- and is failed/retried by the system. Slices have no heartbeat so this must be the max legitimate slice runtime
+
+    "g_antecedent"   bigint,               -- Optional task which acts as a guard that prevents execution of this one until it is completed (any terminal status).
+                                           -- This task will start execution when SD/ED allows AND the antecedent task is completed in an acceptable way (see below).
+                                           -- If antecedent task is deleted then this task will not execute and becomes stale (600)
+    "antecedent_success" boolean not null, -- True then only antecedent success (200) allows this task to run,
+                                           -- false then ANY antecedent terminal status (200 or any failure 4xx/5xx/6xx) allows this task to run
 
     "principal_id"  varchar(128),          -- Optional security principal on behalf of which the task executes
 
     -- Who sets the task status:
-    -- The task status is set by TASK MEMORY INVARIANT runtime code which sets status based on the state oif slices.
+    -- The task status is set by TASK MEMORY INVARIANT runtime code which sets status based on the state of slices.
     -- An update statement periodically runs to update executing tasks based on pgSQL SKIP LOCKED
+    -- The only other writers are the task-level SGA calls which set 400 (bad request) and 550 (kill) directly.
+    -- See memory.tasks.prd.md for the complete rules
     "status"      smallint       not null, -- 0=created: task created but has not started yet
                                            -- 100=running: the slices are being executed now
                                            -- 120=running: with partial failures/retries
                                            -- 200=STOPPED:Succeeded - all slices completed as expected: Success
                                            -- 400=STOPPED:Failure - bad task/aborted because the arguments to task/slice are not valid in principle,
-                                           --             for example unknown app/component to execute
+                                           --             for example unknown app/component to execute. Set by the task-level SGA call, or by the invariant for a task with no slices
                                            -- 500=STOPPED:Failure - permanent failure/server error which surfaced during slice execution
-                                           -- 550=STOPPED:By KILL signal
+                                           -- 550=STOPPED:By KILL signal - set only by the task-level SGA call
                                            -- 600=STOPPED: Stale/outdated
 
     "status_host" varchar(128)   not null, -- Host name that set the status
     "status_msg"  varchar(64),             -- Optional status message for admin/debug purposes
     "status_utc"  timestamp      not null, -- the UTC stamp as of which the status is set
+    "status_data" jsonb,                   -- Status data, such as exception for terminal states, do not confuse with
+                                           -- task result which is stored in slices, this is just a status data for the task itself,
+                                           -- such as exception for terminal states
 
 
     "target_id"   varchar(128)   not null, -- target context ID, such as a FILE to process
@@ -215,9 +225,11 @@ create table tbl_task
     "crt_origin"  bigint         not null, -- Cloud origin where task was created (datacenter id)
 
     constraint "pk_task" primary key ("gdid"),
+    constraint "chk_task_slice_timeout" check ("slice_timeout_sec" between 1 and 86400),
     -- On purpose no g_antecedent FK constraint, for simplicity and because the antecedent task may be deleted
     -- and we still want to keep this task
-    constraint "chk_task_args_maxsize" check (pg_column_size("args") <= 262144) -- 256 KB
+    constraint "chk_task_args_maxsize" check (pg_column_size("args") <= 262144), -- 256 KB
+    constraint "chk_task_sdata_maxsize" check (pg_column_size("status_data") <= 262144), -- 256 KB
 );
 
 -- Index on date for point in time queries: find all tasks that are active at a given point in time for app/cmp
@@ -249,14 +261,15 @@ create table tbl_taskslice
 
 
     "start_host"  varchar(128)   not null, -- Host name that started the latest/current execution (including retry)
-    "start_utc"   timestamp,               -- When slice was started the latest/current execution (including retry)
+    "start_utc"   timestamp,               -- When slice was started the latest/current execution (including retry), NULL until first started
                                            -- Derive latest status running time like:  status_utc - start_utc
 
-    "status"      smallint       not null, -- 0=created,
-                                           -- 100=running
-                                           -- 120=retrying to run after a failure
-                                           -- 200=succeeded
-                                           -- 500=failed
+    "status"      smallint       not null, -- 0=created: never executed (run_count=0)
+                                           -- 100=running: acquired by a worker; abandoned if older than task.slice_timeout_sec since start_utc
+                                           -- 120=retrying: failed but retries remain (run_count <= task.retry_limit); re-acquirable after back-off since status_utc
+                                           -- 200=succeeded: FINAL (never changes)
+                                           -- 500=failed: FINAL permanent failure, retries exhausted (never changes)
+                                           -- The failing worker/reaper decides 120 vs 500 atomically in one UPDATE
 
     "status_host" varchar(128)   not null, -- Host name that set the status
     "status_msg"  varchar(64),             -- Optional status message for admin/debug purposes
@@ -265,7 +278,8 @@ create table tbl_taskslice
     "result"      jsonb,                   -- Task execution result, error if [Failed] or non error is [Succeeded]
 
 
-    "run_count"   smallint       not null, -- How many times the slice has been executed: 1 = just once, >1 retries...
+    "run_count"   smallint       not null, -- How many times the slice execution has been started: 0 = never, 1 = just once, >1 retries...
+                                           -- Incremented at acquire (status -> 100). Total allowed executions = 1 + task.retry_limit
 
     constraint "pk_taskslice" primary key ("gdid"),
     constraint "uk_taskslice" unique ("g_task", "seq"),
