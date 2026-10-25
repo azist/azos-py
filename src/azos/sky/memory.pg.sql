@@ -138,34 +138,74 @@ comment on column tbl_slot."value"       is 'Value for the key in the namespace'
 
 
 
--- Task
+-- Task represent a unit of work that is executed by the system asynchronously. A task consists of multiple "slices" which
+-- represent smaller units of work that gets executed in parallel by system daemons. Slices are units of execution status tracking
+-- and a task status is tracked by a state of its slices. Slices are HARD-coded at task creation and CAN NOT be added dynamically later.
+-- A task execution "command" is an app + component ids along with JSON args and slices.
+-- The system maintains task+slice state machine via these tables and updates the status of tasks/slices based on the execution results.
+-- The task is considered completed when all slices are completed.
+-- If slices fail, depending on task mode and slice retry limits the system either tries to retry slices with back-off strategy
+-- or fails the task permanently.
+-- The daemons execute slices in asynchronous manner and update slice status and then the task runtime INVARIANT code updates
+-- the whole task status depending on the slice states.
+-- The TASK state MACHINE is updated asynchronously by the system code INVARIANT guard, it is not instantaneous but eventually
+-- consistent with the slice states within a set SLA (a few minutes). The task status is not updated by the slice execution code directly,
+-- it is updated by a separate dedicated INVARIANT code path that runs periodically and updates the task status based on the slice states.
+-- Such INVARIANT is a part of MEMORY Layer, not slice execution code, so the slice execution code does not have to worry about task state
+-- machine and can focus on executing slices only.
+-- The task itself is a state machine that does not return a result.
+-- A task has NO RESULT of its own. If you need to return a result from a task, you either need to harvest it from
+-- antecedent slices OR pre-create a completion mailbox slot for the task to write its result into.
 create table tbl_task
 (
     "gdid"        bigint         not null, -- Task unique ID
-    "ctag"        uuid           not null, -- Task correlation tag
-    "title"       varchar(64)    not null, -- Task title used for admin purposes
-    "app"         varchar(32)    not null, -- Application to execute
+    "ctag"        uuid           not null, -- Task correlation tag used for logging and tracing
+    "title"       varchar(64)    not null, -- Task title used for admin/UI
+    "app"         varchar(32)    not null, -- Application id to execute
     "cmp"         varchar(128)   not null, -- Application component within application to execute
-    "nice"        int            not null, -- Task niceness similar to .NIX
+    "nice"        smallint       not null, -- Task niceness similar to .NIX
     "sd_utc"      timestamp      not null, -- Start date: task can not start before this date
     "ed_utc"      timestamp      not null, -- After this date task would not run. If it has not started it will become stale
 
-    "g_antecedent"   bigint,               -- Optional task which acts as a guard that prevents execution of this one until it is completed (200 or 500).
+    "mode"        smallint       not null, -- 0 = autofail: any slice failure will auto fail task into 500 status code - which is STOPPED/Permanent Failure
+                                           -- 100 = manual: task will not auto-fail on slice failure, it will stay in running state until admin manually stops it or it succeeds
+
+    "retry_limit" smallint       not null, -- How many times the failing slices will be tried to re-run before aborting the slice
+                                           -- If 0 then no automatic retries are attempted, if 1 then one retry is attempted, etc.
+
+
+    "g_antecedent"   bigint,               -- Optional task which acts as a guard that prevents execution of this one until it is completed (200 or 400/500).
                                            -- This task will start execution when SD/ED allows AND the antecedent task is completed with 200 or 500 status code.
-                                           -- If antecedent task is deleted that this task will not execute and become stale
+                                           -- If antecedent task is deleted than this task will not execute and become stale
+    "antecedent_success" boolean not null, -- True then only antecedent success (200) allows this task to run, false then antecedent failure (400/500) also allows this task to run
 
-    "exec_actor"  varchar(128)   not null, -- Security principal on behalf of which the task executes
+    "principal_id"  varchar(128),          -- Optional security principal on behalf of which the task executes
 
-    "status"      smallint       not null, -- 0=created, 100=running, 200=succeeded, 500=failed
+    -- Who sets the task status:
+    -- The task status is set by TASK MEMORY INVARIANT runtime code which sets status based on the state oif slices.
+    -- An update statement periodically runs to update executing tasks based on pgSQL SKIP LOCKED
+    "status"      smallint       not null, -- 0=created: task created but has not started yet
+                                           -- 100=running: the slices are being executed now
+                                           -- 120=running: with partial failures/retries
+                                           -- 200=STOPPED:Succeeded - all slices completed as expected: Success
+                                           -- 400=STOPPED:Failure - bad task/aborted because the arguments to task/slice are not valid in principle,
+                                           --             for example unknown app/component to execute
+                                           -- 500=STOPPED:Failure - permanent failure/server error which surfaced during slice execution
+                                           -- 550=STOPPED:By KILL signal
+                                           -- 600=STOPPED: Stale/outdated
+
+    "status_host" varchar(128)   not null, -- Host name that set the status
     "status_msg"  varchar(64),             -- Optional status message for admin/debug purposes
-    "status_utc"  timestamp      not null, -- the UTc stamp as of which the status is set
-
--- Need to track status host, app inst, (app/cmp) already in task
+    "status_utc"  timestamp      not null, -- the UTC stamp as of which the status is set
 
 
     "target_id"   varchar(128)   not null, -- target context ID, such as a FILE to process
-    "args"        jsonb          not null, -- Task Arguments
-    "result"      jsonb,                   -- Task execution result, error if [Failed] or non error is [Succeeded]
+    "args"        jsonb          not null, -- Task Arguments, you can pass result mailbox here if you want to return a result from the task
+                                           -- otherwise the task has no result of its own
+
+    -- The task itself is a state machine that does not return a result.
+    -- Task has NO RESULT of its own. If you need to return a result from a task, you either need to harvest it from
+    -- antecedent slices OR pre-create a completion mailbox slot for the task to write its result into.
 
     "crt_app"     varchar(32)    not null, -- Process app id that created the task
     "crt_cmp"     varchar(128)   not null, -- Component id that created the task
@@ -175,7 +215,8 @@ create table tbl_task
     "crt_origin"  bigint         not null, -- Cloud origin where task was created (datacenter id)
 
     constraint "pk_task" primary key ("gdid"),
-    constraint "fk_task_antecedent" foreign key ("g_antecedent") references "tbl_task"("gdid")
+    -- On purpose no g_antecedent FK constraint, for simplicity and because the antecedent task may be deleted
+    -- and we still want to keep this task
 );
 
 -- Index on date for point in time queries: find all tasks that are active at a given point in time for app/cmp
@@ -187,26 +228,43 @@ create index "idx_task_ctag" on "tbl_task" ("ctag");
 -- Index on Target_id
 create index "idx_task_target_id" on "tbl_task" ("target_id");
 
+-- Index on Antecedent - find all tasks that depend on a given antecedent task - on purpose no FK
+create index "idx_task_antecedent" on "tbl_task" ("g_antecedent");
 
--- UNDER construction
+
+-- Slices represent aq unit of actual work performed by APP:CMP on behalf of a task. A slice is a unit of execution and
+-- status tracking. A task consists of multiple slices which are executed in parallel by system daemons.
+-- The slice can either be executed successfully or fail. The slice execution result is stored in the slice record and
+-- the task status is updated by system INVARIANT code based on the slice states.
+
+-- The retry logic looks at status: if task failed then the system checks if the slice has retry attempts left and if
+-- so it re-queues the slice for execution with a back-off strategy based on "status_utc" and "run_count".
+-- If the slice has exhausted its retry attempts, it is marked as permanently failed and the task status is updated accordingly.
 create table tbl_taskslice
 (
     "gdid"        bigint         not null, -- Task Slice unique ID
     "g_task"      bigint         not null, -- FK Task
-    "seq"         int            not null, -- Slice sequence number within task
-    "status"      smallint       not null, -- 0=created, 100=running, 200=succeeded, 500=failed
+    "seq"         int            not null, -- Slice list sequence number within task
+
+
+    "start_host"  varchar(128)   not null, -- Host name that started the latest/current execution (including retry)
+    "start_utc"   timestamp,               -- When slice was started the latest/current execution (including retry)
+                                           -- Derive latest status running time like:  status_utc - start_utc
+
+    "status"      smallint       not null, -- 0=created,
+                                           -- 100=running
+                                           -- 120=retrying to run after a failure
+                                           -- 200=succeeded
+                                           -- 500=failed
+
+    "status_host" varchar(128)   not null, -- Host name that set the status
     "status_msg"  varchar(64),             -- Optional status message for admin/debug purposes
+    "status_utc"  timestamp      not null, -- the UTC stamp as of which the status is set
     "args"        jsonb          not null,
     "result"      jsonb,                   -- Task execution result, error if [Failed] or non error is [Succeeded]
 
-    "start_host"  varchar(128)   not null, -- Host name that started execution
-    "start_utc"   timestamp,               -- When slice was started
-    "end_utc"     timestamp,               -- When slice was completed (succeeded or failed)
 
--- max-retries? backoff settings?/policies
-
--- need to track who started: host, app instance (app/component already in task table)
-
+    "run_count"   smallint       not null, -- How many times the slice has been executed: 1 = just once, >1 retries...
 
     constraint "pk_taskslice" primary key ("gdid"),
     constraint "uk_taskslice" unique ("g_task", "seq"),
