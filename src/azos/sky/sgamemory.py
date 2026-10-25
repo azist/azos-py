@@ -21,7 +21,7 @@ Copyright (C) 2020 - 2026 Azist, MIT License
 """
 
 
-from asyncio import Event
+from asyncio import Event, TimeoutError as AsyncTimeoutError, wait_for
 from dataclasses import dataclass
 from random import uniform
 from typing import override
@@ -151,19 +151,38 @@ class SGAMemory(AsyncDaemon):
     @property
     @override
     def interval_s(self) -> float:
-        return uniform(20, 60) # will read this from descriptor
+        return uniform(30, 90) # will read this from descriptor
+
+
+    @staticmethod
+    async def _random_delay(stop_event: Event, min_s: float = 1.5, max_s: float = 7.0) -> bool:
+        """
+        Sleeps for a random time in [min_s, max_s] seconds, waking up early if stop_event is set.
+        Returns True if the stop event is set (caller should bail out), False if the delay elapsed normally
+        """
+        if stop_event.is_set(): return True
+        try:
+            await wait_for(stop_event.wait(), timeout=uniform(min_s, max_s))
+        except AsyncTimeoutError:
+            pass
+        return stop_event.is_set()
 
 
     @override
     async def do_work(self, stop_event: Event) -> None:
+        if stop_event.is_set(): return
+
         # if self.drop_expired_mutexes_enabled:
         await self.drop_expired_mutexes()
 
         # if self.drop_expired_slots_enabled:
+        # random delay spreads the load of the nodes; bail out if stop was requested
+        if await self._random_delay(stop_event): return
         await self.drop_expired_slots()
 
-        # this is a TaskInvariantDaemon-like work, but we do it here for simplicity and to avoid another daemon
         # if self.ensure_task_invariants_enabled:
+        # this is a TaskInvariantDaemon-like work, but we do it here for simplicity and to avoid another daemon
+        if await self._random_delay(stop_event): return
         await self.ensure_task_invariants()
 
 
@@ -236,6 +255,7 @@ class SGAMemory(AsyncDaemon):
         """
         if not self.is_daemon_active: return False
         ...
+        return False
 
 
     async def task_kill(self, handle: TaskHandle, message: str, data: dict | None = None) -> bool:
@@ -248,6 +268,7 @@ class SGAMemory(AsyncDaemon):
         """
         if not self.is_daemon_active: return False
         ...
+        return False
 
 
     async def mutex_set(self, args: MutexSetArgs) -> MutexHandle | None:
