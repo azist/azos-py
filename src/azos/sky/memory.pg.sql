@@ -217,6 +217,7 @@ create table tbl_task
     constraint "pk_task" primary key ("gdid"),
     -- On purpose no g_antecedent FK constraint, for simplicity and because the antecedent task may be deleted
     -- and we still want to keep this task
+    constraint "chk_task_args_maxsize" check (pg_column_size("args") <= 262144) -- 256 KB
 );
 
 -- Index on date for point in time queries: find all tasks that are active at a given point in time for app/cmp
@@ -268,5 +269,6 @@ create table tbl_taskslice
 
     constraint "pk_taskslice" primary key ("gdid"),
     constraint "uk_taskslice" unique ("g_task", "seq"),
-    constraint "fk_taskslice_task" foreign key ("g_task") references "tbl_task"("gdid")
+    constraint "fk_taskslice_task" foreign key ("g_task") references "tbl_task"("gdid"),
+    constraint "chk_taskslice_args_maxsize" check (pg_column_size("args") <= 262144) -- 256 KB
 );
