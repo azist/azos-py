@@ -21,7 +21,7 @@ Copyright (C) 2020 - 2026 Azist, MIT License
 """
 
 
-from asyncio import Event, TimeoutError as AsyncTimeoutError, wait_for
+from asyncio import Event
 from dataclasses import dataclass
 from random import uniform
 from typing import override
@@ -143,47 +143,35 @@ class SGAMemory(AsyncDaemon):
     storing data in RDBMS or NoSQL/memory data stores
     """
 
-    def __init__(self, chassis: AppChassis, director: AppComponent | None = None) -> None:
+    def __init__(self, chassis: AppChassis, director: AppComponent | None, config: Descriptor) -> None:
         super().__init__(chassis, director)
         self._anl = LogStrand("SGAMemory", channel=LOG_CHANNEL_ANL)
-
+        self._jitter_s = min(600, max(5, config.as_float('jitter_s') or 30))
+        self._drop_expired_mutexes   = True == config.as_bool('drop_expired_mutexes', True)
+        self._drop_expired_slots     = True == config.as_bool('drop_expired_slots', True)
+        self._ensure_task_invariants = True == config.as_bool('ensure_task_invariants', True)
 
     @property
     @override
     def interval_s(self) -> float:
-        return uniform(30, 90) # will read this from descriptor
-
-
-    @staticmethod
-    async def _random_delay(stop_event: Event, min_s: float = 1.5, max_s: float = 7.0) -> bool:
-        """
-        Sleeps for a random time in [min_s, max_s] seconds, waking up early if stop_event is set.
-        Returns True if the stop event is set (caller should bail out), False if the delay elapsed normally
-        """
-        if stop_event.is_set(): return True
-        try:
-            await wait_for(stop_event.wait(), timeout=uniform(min_s, max_s))
-        except AsyncTimeoutError:
-            pass
-        return stop_event.is_set()
+        return uniform(10, 10 + self._jitter_s)
 
 
     @override
     async def do_work(self, stop_event: Event) -> None:
         if stop_event.is_set(): return
 
-        # if self.drop_expired_mutexes_enabled:
-        await self.drop_expired_mutexes()
+        if self._drop_expired_mutexes:
+            await self.drop_expired_mutexes()
 
-        # if self.drop_expired_slots_enabled:
-        # random delay spreads the load of the nodes; bail out if stop was requested
-        if await self._random_delay(stop_event): return
-        await self.drop_expired_slots()
+        if self._drop_expired_slots:
+          if await self._random_delay(stop_event): return
+          await self.drop_expired_slots()
 
-        # if self.ensure_task_invariants_enabled:
         # this is a TaskInvariantDaemon-like work, but we do it here for simplicity and to avoid another daemon
-        if await self._random_delay(stop_event): return
-        await self.ensure_task_invariants()
+        if self._ensure_task_invariants:
+          if await self._random_delay(stop_event, 1.5, 7.5): return
+          await self.ensure_task_invariants()
 
 
     async def drop_expired_mutexes(self):
