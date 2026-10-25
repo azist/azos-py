@@ -156,9 +156,15 @@ class SGAMemory(AsyncDaemon):
 
     @override
     async def do_work(self, stop_event: Event) -> None:
-        # This needs to be proxied by if self.Drop_Mutexes
+        # if self.drop_expired_mutexes_enabled:
         await self.drop_expired_mutexes()
+
+        # if self.drop_expired_slots_enabled:
         await self.drop_expired_slots()
+
+        # this is a TaskInvariantDaemon-like work, but we do it here for simplicity and to avoid another daemon
+        # if self.ensure_task_invariants_enabled:
+        await self.ensure_task_invariants()
 
 
     async def drop_expired_mutexes(self):
@@ -169,6 +175,12 @@ class SGAMemory(AsyncDaemon):
 
     async def drop_expired_slots(self):
         """Drops all slots that reached past EOL and never deleted"""
+        if not self.is_daemon_active: return
+        ...
+
+
+    async def ensure_task_invariants(self):
+        """Ensures that all tasks in SGA are in a valid state, e.g. slices that are abandoned are failed, etc"""
         if not self.is_daemon_active: return
         ...
 
