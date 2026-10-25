@@ -232,6 +232,8 @@ create table tbl_task
     constraint "chk_task_sdata_maxsize" check (pg_column_size("status_data") <= 262144), -- 256 KB
 );
 
+create index "idx_task_status" on "tbl_task" ("status", "app", "cmp");
+
 -- Index on date for point in time queries: find all tasks that are active at a given point in time for app/cmp
 create index "idx_task_dtappcmp_utc" on "tbl_task" ("ed_utc", "sd_utc", "app", "cmp");
 

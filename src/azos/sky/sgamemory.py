@@ -151,7 +151,7 @@ class SGAMemory(AsyncDaemon):
     @property
     @override
     def interval_s(self) -> float:
-        return uniform(20, 60)
+        return uniform(20, 60) # will read this from descriptor
 
 
     @override

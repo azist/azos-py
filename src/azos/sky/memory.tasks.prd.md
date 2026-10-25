@@ -421,10 +421,7 @@ Both are SGA API methods taking a `TaskHandle` (`g_task`); neither is ever issue
 | D11 | Any terminal non-200 antecedent (`4xx/5xx/6xx`) satisfies `antecedent_success = false` (was Q2). | §4.3. |
 | D12 | Back-off defaults confirmed: `min(cap, base*2^(n-1))` + jitter (was Q5). | §5.2. |
 | D13 | `400` and `550` are set only by the task-level SGA calls `task_set_bad_request` / `task_kill`; the TID never writes `550` and writes `400` only for "no slices" (was Q6). | §7.5. |
-| D14 | Terminal exception details of a task (`task_set_bad_request`) are stored in `tbl_task.status_data` (`jsonb`); `status_msg` is only a short summary (≤ 64 chars). | Error details do not fit 64 chars; `status_data` exists in the DDL for exactly this. |
+| D14 | Terminal exception details of a task (`task_set_bad_request`/`task_kill`) are stored in `tbl_task.status_data` (`jsonb`); `status_msg` is only a short summary (≤ 64 chars). | Error details do not fit 64 chars; `status_data` exists in the DDL for exactly this. |
+| D15 | Authorization of `task_kill` / `task_set_bad_request` callers (not modelled in the memory layer) will be protected by Azos permissions when we add them |
 
-## 13. Open questions
 
-None blocking. Candidates for later:
-- Should `task_kill` also record caller/reason details in `status_data` (this PRD: optional, same mechanism as D14)?
-- Authorization of `task_kill` / `task_set_bad_request` callers (not modelled in the memory layer).
