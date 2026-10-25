@@ -187,7 +187,7 @@ class SGAMemory(AsyncDaemon):
 
 
     async def ensure_task_invariants(self):
-        """Ensures that all tasks in SGA are in a valid state, e.g. slices that are abandoned are failed, etc"""
+        """TID - TaskInvariantDaemon: Ensures that all tasks in SGA are in a valid state, e.g. slices that are abandoned are failed, etc"""
         if not self.is_daemon_active: return
         ...
 
