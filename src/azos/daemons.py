@@ -13,6 +13,7 @@ Copyright (C) 2018 - 2026 Azist, MIT License
 from enum import Enum
 from typing import Protocol, runtime_checkable
 import asyncio
+import random
 from abc import abstractmethod
 
 from azos.chassis import AppComponent, IAppComponent, AppChassis
@@ -123,6 +124,21 @@ class AsyncDaemon(AppComponent, IAsyncDaemonControl):
     def interval_s(self) -> float:
         """Controls how often the daemon fires its do_work(). Override to change the interval. Default is 5 seconds."""
         return 5.0
+
+
+    @staticmethod
+    async def _random_delay(stop_event: asyncio.Event, min_s: float = 1.5, max_s: float = 7.0) -> bool:
+        """
+        Sleeps for a random time in [min_s, max_s] seconds, waking up early if stop_event is set.
+        Returns True if the stop event is set (caller should bail out), False if the delay elapsed normally.
+        Used to introduce random jitter in the daemon's work loop to avoid thundering herd problems etc.
+        """
+        if stop_event.is_set(): return True
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=random.uniform(min_s, max_s))
+        except asyncio.TimeoutError:
+            pass
+        return stop_event.is_set()
 
 
     @abstractmethod
