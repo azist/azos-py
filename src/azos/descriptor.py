@@ -900,7 +900,8 @@ class FileChassisDescriptorFactory(ChassisDescriptorFactory):
     The root file name is read from the config section named [{app_id}] attr `fs-chassis-descriptor-path`.
     If the attribute is not specified, then the root file is co-located with the app chassis entry point and is
     named after it, e.g. `main.py` -> `main.$(env).json`. The path is either absolute or relative to the
-    entry point directory, and the file must exist.
+    entry point directory. The root file must exist if the factory is `required` (the default), otherwise
+    an empty descriptor is returned when the root file is not found. Missing included files are always an error.
 
     The path may have an `$(env)` macro, which resolves to the environment name passed to the factory,
     e.g. `main.$(env).json` -> `main.prod.json` or `main.dev.json`. No other macros are supported at bootload.
@@ -911,6 +912,10 @@ class FileChassisDescriptorFactory(ChassisDescriptorFactory):
     Included files may include other files; the whole tree is rescanned up to `MAX_INCLUDES` times, which limits the
     nesting depth and stops circular includes. If the limit is exceeded, a ConfigError is raised.
     """
+
+    def __init__(self, required: bool = True):
+        super().__init__()
+        self._required = required
 
     @override
     def __call__(self,
@@ -932,14 +937,19 @@ class FileChassisDescriptorFactory(ChassisDescriptorFactory):
             if not cfg_file:
                 cfg_file = f"{os.path.splitext(os.path.basename(ep_path))[0]}.$(env).json"
 
+
             ep_dir = os.path.dirname(ep_path)
             cfg_path = FileChassisDescriptorFactory.resolve_path(cfg_file, ep_dir, environment)
+
+            if not self._required and not os.path.isfile(cfg_path):
+                return Descriptor(data={})
+
 
             result = FileChassisDescriptorFactory.load_data_from_file(cfg_path)
             result = FileChassisDescriptorFactory.process_includes(result, ep_dir, environment)
 
             if not isinstance(result, dict):
-                raise ConfigError(f"Root of descriptor file `{cfg_path}` must be a JSON object")
+                raise ConfigError(f"Root of descriptor file `{cfg_path}` must be a JSON map object")
 
             return Descriptor(data=result)
         except Exception as e:
