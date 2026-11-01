@@ -1,0 +1,1 @@
+[{ "type": "file", "path": "/var/log/app.log" }, { "type": "otel" }]

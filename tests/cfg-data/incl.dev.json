@@ -1,0 +1,10 @@
+{
+  "name": "incl",
+  "env": "dev",
+  "common": "#include<parts/common.json>",
+  "db": "#include<parts/db.$(env).json>",
+  "servers": ["#include<parts/server-a.json>", "#include<parts/server-b.json>", "literal"],
+  "tags": "#include<parts/tags.json>",
+  "port": "#include<parts/port.json>",
+  "logging": "#include<parts/logging.json>"
+}

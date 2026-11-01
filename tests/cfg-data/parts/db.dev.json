@@ -1,0 +1,1 @@
+{ "server": "localhost", "pool": 5, "timeouts": "#include<parts/timeouts.json>" }
