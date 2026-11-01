@@ -1,4 +1,5 @@
 {
   "a": 1,
-  "section": "#include<example-1.json>"
+  "section": "#include<example-1.json>",
+  "array": "#include<example-2.json>"
 }

@@ -12,7 +12,7 @@ from azos.descriptor import FileChassisDescriptorFactory
 
 chassis = AppChassis("toy-apm-cli", __file__, descriptor_factory=FileChassisDescriptorFactory())
 
-print(f"DESCRIPTOR on {chassis.environment}:\n ======================== \n {chassis.descriptor} \n ======================== \n")
+print(f"DESCRIPTOR on {chassis.environment}:\n ======================== \n {chassis.descriptor.data} \n ======================== \n")
 
 log = LogStrand("app.body", rel="self")
 log.info("Starting toy-apm-cli app...")
