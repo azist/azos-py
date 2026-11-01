@@ -1,0 +1,6 @@
+{
+  "name": "plain",
+  "env": "prod",
+  "num": 2,
+  "nested": { "flag": false, "list": [4, 5] }
+}

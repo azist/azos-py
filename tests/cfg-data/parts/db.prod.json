@@ -1,0 +1,1 @@
+{ "server": "db.prod.azist", "pool": 50, "timeouts": "#include<parts/timeouts.json>" }

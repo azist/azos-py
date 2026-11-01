@@ -8,8 +8,11 @@ from azos.chassis import AppChassis, AppComponent
 
 from azos.apm.log import LogStrand
 from azos.apm.otel import get_tracer
+from azos.descriptor import FileChassisDescriptorFactory
 
-chassis = AppChassis("toy-apm-cli", __file__)
+chassis = AppChassis("toy-apm-cli", __file__, descriptor_factory=FileChassisDescriptorFactory())
+
+print(f"DESCRIPTOR on {chassis.environment}:\n ======================== \n {chassis.descriptor.data} \n ======================== \n")
 
 log = LogStrand("app.body", rel="self")
 log.info("Starting toy-apm-cli app...")

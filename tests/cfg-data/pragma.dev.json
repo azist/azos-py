@@ -1,0 +1,9 @@
+{
+  "spaced": "   #include<  parts/common.json  >   ",
+  "upper": "#include<parts/db.$(ENV).json>",
+  "inline": "see #include<parts/common.json>",
+  "trailing": "#include<parts/common.json> extra",
+  "no-brackets": "#include parts/common.json",
+  "plain": "just text",
+  "deep": { "list": [ { "x": "#include<parts/port.json>" } ] }
+}

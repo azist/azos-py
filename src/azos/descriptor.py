@@ -25,14 +25,17 @@ A most typical use of descriptors is to wrap a configuration section dictionary 
 Copyright (C) 2019 - 2026 Azist, MIT License
 """
 
+from configparser import ConfigParser
 import copy
+import re
 from decimal import Decimal, InvalidOperation
 from enum import Enum
 from datetime import datetime, timezone
 from types import EllipsisType
-from typing import Any, TypeVar
+from typing import Any, TypeVar, override
 
-from azos.chassis import AppChassis, ConfigError, expand_var_expressions
+from azos.chassis import AppChassis, ChassisDescriptorFactory, ConfigError, expand_var_expressions
+from azos.exceptions import AzosError
 
 TEnum = TypeVar("TEnum", bound=Enum)
 TDescriptor = TypeVar("TDescriptor", bound="Descriptor")
@@ -881,3 +884,172 @@ class Descriptor:
                 return default
 
         return default
+
+
+CONFIG_FILE_DESCRIPTOR_PATH_ATTR = "fs-chassis-descriptor-path"
+INCLUDE_PRAGMA = re.compile(r"^\s*#include<(?P<path>[^<>]+)>\s*$")
+"""Matches an include string like `#include<snake.$(env).json>`; the `path` group is the file path, may have `$(env)`"""
+MAX_INCLUDES: int = 10
+
+
+class FileChassisDescriptorFactory(ChassisDescriptorFactory):
+    """
+    A chassis descriptor factory that creates Descriptors from local config file/s.
+    The files are expected to be in JSON format and the root file must be a JSON object.
+
+    The root file name is read from the config section named [{app_id}] attr `fs-chassis-descriptor-path`.
+    If the attribute is not specified, then the root file is co-located with the app chassis entry point and is
+    named after it, e.g. `main.py` -> `main.$(env).json`. The path is either absolute or relative to the
+    entry point directory. The root file must exist if the factory is `required` (the default), otherwise
+    an empty descriptor is returned when the root file is not found. Missing included files are always an error.
+
+    The path may have an `$(env)` macro, which resolves to the environment name passed to the factory,
+    e.g. `main.$(env).json` -> `main.prod.json` or `main.dev.json`. No other macros are supported at bootload.
+
+    Any string value in the file may be an include pragma `#include<path>` which is replaced with the content
+    of the referenced file. The path follows the same rules as the root file path: it may have the `$(env)` macro and
+    is either absolute or relative to the entry point directory (NOT to the including file's directory).
+    Included files may include other files; the whole tree is rescanned up to `MAX_INCLUDES` times, which limits the
+    nesting depth and stops circular includes. If the limit is exceeded, a ConfigError is raised.
+    """
+
+    def __init__(self, required: bool = True):
+        super().__init__()
+        self._required = required
+
+    @override
+    def __call__(self,
+                instance_id: str,
+                entry_point_path: str,
+                app_id: str,
+                environment: str,
+                host: str,
+                config: ConfigParser) -> "Descriptor":
+
+        try:
+            import os
+
+            # Read from config section named [{app_id}] attr `{CONFIG_FILE_DESCRIPTOR_PATH_ATTR}`; the path is relative
+            # to the entry point directory, e.g. "config/chassis.json", or absolute (platform dependent).
+            # When not specified defaults to a file co-located with the entry point: main.py -> main.$(env).json
+            ep_path = os.path.abspath(entry_point_path)
+            cfg_file = config.get(app_id, CONFIG_FILE_DESCRIPTOR_PATH_ATTR, fallback="").strip()
+            if not cfg_file:
+                cfg_file = f"{os.path.splitext(os.path.basename(ep_path))[0]}.$(env).json"
+
+
+            ep_dir = os.path.dirname(ep_path)
+            cfg_path = FileChassisDescriptorFactory.resolve_path(cfg_file, ep_dir, environment)
+
+            if not self._required and not os.path.isfile(cfg_path):
+                return Descriptor(data={})
+
+
+            result = FileChassisDescriptorFactory.load_data_from_file(cfg_path)
+            result = FileChassisDescriptorFactory.process_includes(result, ep_dir, environment)
+
+            if not isinstance(result, dict):
+                raise ConfigError(f"Root of descriptor file `{cfg_path}` must be a JSON map object")
+
+            return Descriptor(data=result)
+        except Exception as e:
+            raise AzosError(
+                message=f"!!!Catastrophic failure!!!: \n"
+                        f"FileChassisDescriptorFactory was not able to obtain descriptor to bootload chassis \n"
+                        f"Inspect the inner error for details \n"
+                        f"Inner error: \n     {str(e)}",
+                topic="chassis-bootload",
+                frm=f"__call__(app_id=`{app_id}`, env=`{environment}`, host=`{host}`)",
+                src=0
+            ) from e
+
+    @staticmethod
+    def resolve_path(path: str, base_dir: str, environment: str) -> str:
+        """
+        Expands `$(env)` macro in the path using the passed environment name, then returns an absolute path as-is,
+        or a relative path joined to the base directory. The chassis is not fully built yet at bootload,
+        so `$(env)` is resolved from the passed environment rather than from the chassis
+        """
+        import os
+
+        def resolve_env(name: str) -> tuple[bool, str]:
+            return (True, environment) if name.lower() == "env" else (False, "")
+
+        path = expand_var_expressions(path, resolver=resolve_env) or path
+        return path if os.path.isabs(path) else os.path.join(base_dir, path)
+
+    @staticmethod
+    def process_includes(data: Any, base_dir: str, environment: str) -> Any:
+        """
+        Deep-scans the loaded data (dicts and lists) and replaces every string value matching the
+        `INCLUDE_PRAGMA` regexp with the content of the referenced file. The file path may contain `$(env)` macro and is
+        either absolute or relative to the base dir (the same base for all includes, regardless of nesting). Included content may have includes of its own, so the scan
+        is repeated up to `MAX_INCLUDES` times, after which the includes are considered circular/too deep.
+        Returns the data with includes processed (the root itself is replaced if it is an include string)
+        """
+        def match(v: Any) -> str | None:
+            if isinstance(v, str):
+                m = INCLUDE_PRAGMA.match(v)
+                if m:
+                    return m.group("path").strip()
+            return None
+
+        def load(path: str) -> Any:
+            return FileChassisDescriptorFactory.load_data_from_file(
+                FileChassisDescriptorFactory.resolve_path(path, base_dir, environment))
+
+        def scan(node: Any) -> tuple[Any, bool]:
+            path = match(node)
+            if path is not None:
+                return load(path), True
+
+            found = False
+            if isinstance(node, dict):
+                for k, v in node.items():
+                    node[k], f = scan(v)
+                    found |= f
+            elif isinstance(node, list):
+                for i, v in enumerate(node):
+                    node[i], f = scan(v)
+                    found |= f
+            return node, found
+
+        for _ in range(MAX_INCLUDES):
+            data, found = scan(data)
+            if not found:
+                return data
+
+        # Included content may still contain pragmas after the last pass
+        data, found = scan(data)
+        if found:
+            raise ConfigError(f"File includes exceeded maximum depth of {MAX_INCLUDES}. Look for circular includes")
+        return data
+
+    @staticmethod
+    def load_data_from_file(file_path: str) -> Any:
+        """
+        Loads and parses data from a local file. Only JSON is supported at this time; the result is whatever
+        the JSON root is (usually a dict, but included files may contain any JSON value).
+        """
+        import os
+        import json
+
+        if not os.path.isfile(file_path):
+            raise FileNotFoundError(f"Config file not found: {file_path}")
+
+        with open(file_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        # Determine the file format based on the extension
+        _, ext = os.path.splitext(file_path)
+        ext = ext.lower()
+
+        if ext in ['.json']:
+            data = json.loads(content)
+        # Will support Laconic parser here
+        #elif ext in ['.yaml', '.yml']:
+        #    data = yaml.safe_load(content)
+        else:
+            raise ValueError(f"Unsupported config file format: {ext}")
+
+        return data

@@ -1,0 +1,1 @@
+{ "name": "custom-noenv", "shared": "#include<parts/common.json>", "db": "#include<parts/db.$(env).json>" }
