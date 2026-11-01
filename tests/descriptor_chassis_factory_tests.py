@@ -372,7 +372,7 @@ def test_include_without_env_with_nested_env_include(env: str, sink_types: list[
     with chassis("incl", env) as app:
         d = app.descriptor
         assert d.as_str("logging/level") == "info"
-        assert [s["type"] for s in d.as_list("logging/sinks")] == sink_types
+        assert [s["type"] for s in d.as_list("logging/sinks")] == sink_types # pyright: ignore[reportOptionalIterable, reportGeneralTypeIssues]
 
 
 def test_nested_includes_resolve_against_entry_point_dir():
@@ -434,7 +434,7 @@ def test_absolute_root_with_relative_and_absolute_includes(env: str, tmp_path):
     with chassis("plain", env, config=config) as app:
         d = app.descriptor
         assert d.as_dict("relative") == COMMON
-        assert len(d.as_list("relative_env")) == (1 if env == "dev" else 2)
+        assert len(d.as_list("relative_env")) == (1 if env == "dev" else 2) # type: ignore
         assert d.as_list("absolute") == ["alpha", "beta"]
         assert d.as_int("absolute_env/pool") == (5 if env == "dev" else 50)
         assert d.as_dict("absolute_env/timeouts") == TIMEOUTS
