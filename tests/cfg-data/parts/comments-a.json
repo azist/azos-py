@@ -1,0 +1,11 @@
+// Included map with comments, includes another file with comments
+{
+  "company": "Azist", /* inline */
+  "motto": "it's /* not */ a comment, // really",
+  "quote": "\"\"\"/* triple */\"\"\" and '// single'",
+  /*
+    "commented_out": true,
+  */
+  // "also_commented_out": true,
+  "nested": "#include<parts/comments-b.json>"
+}
