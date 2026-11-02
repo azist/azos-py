@@ -1,0 +1,29 @@
+/*
+  Root file with JSONC comments.
+  A "quoted" and 'single quoted' text in a comment must not start a string: it's fine
+*/
+{
+  // single line comment before a key, has "quotes" and 'apostrophes'
+  "name": "comments", // trailing comment
+  "env": /* inline block comment */ "dev",
+
+  "url": "https://azist.com/path//double//slash",
+  "dq": "a // not a comment /* not a block */ b",
+  "sq": "'// single quoted line' and '/* single quoted block */'",
+  "tq": "\"\"\" // triple quoted line /* triple quoted block */ \"\"\"",
+  "escaped": "say \"// hi\" and \\", // escaped quote and trailing backslash before a comment
+  "path": "c:\\dir\\", /* block after a string ending with an escaped backslash */
+  "only_slashes": "//",
+  "only_block": "/**/",
+
+  /* multi
+     line
+     block comment with "unbalanced quote
+  */
+  "nums": [1, /* two */ 2, // three
+           3],
+
+  "part": "#include<parts/comments-a.json>", // include of a file with comments
+  "list": "#include<parts/comments-b.json>" /* include of a list with comments */
+}
+// trailing comment at the end of file

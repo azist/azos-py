@@ -890,6 +890,35 @@ CONFIG_FILE_DESCRIPTOR_PATH_ATTR = "fs-chassis-descriptor-path"
 INCLUDE_PRAGMA = re.compile(r"^\s*#include<(?P<path>[^<>]+)>\s*$")
 """Matches an include string like `#include<snake.$(env).json>`; the `path` group is the file path, may have `$(env)`"""
 MAX_INCLUDES: int = 10
+JSONC_COMMENTS = re.compile(r'(?P<str>"(?:\\.|[^"\\])*")|//[^\r\n]*|/\*[\s\S]*?\*/')
+"""Matches either a JSON string literal (group `str`, kept as-is) or a `//` line / `/* */` block comment (stripped)"""
+
+
+def __jsonc_comment_replacer(match: re.Match) -> str:
+    # Keep strings as-is
+    literal = match.group("str")
+    if literal is not None:
+        return literal
+
+    text = match.group(0)
+    if text.startswith("//"):
+        return ""
+
+    # Keep line breaks of block comments so line numbers in JSON parse errors stay accurate
+    newlines = "".join(ch for ch in text if ch in "\r\n")
+    return newlines if newlines else " "
+
+
+def strip_jsonc_comments(json_str: str) -> str:
+    """
+    Strips comments from a JSONC (JSON with comments) string. Supports both single-line (//) and multi-line (/* */) comments.
+    Returns the JSON string without comments, preserving the original formatting and whitespace.
+    Comment-like sequences inside string literals are not stripped.
+    """
+    if not json_str:
+        return json_str
+
+    return JSONC_COMMENTS.sub(__jsonc_comment_replacer, json_str)
 
 
 class FileChassisDescriptorFactory(ChassisDescriptorFactory):
@@ -1045,6 +1074,8 @@ class FileChassisDescriptorFactory(ChassisDescriptorFactory):
         ext = ext.lower()
 
         if ext in ['.json']:
+            #strip JSONC comments
+            content = strip_jsonc_comments(content)
             data = json.loads(content)
         # Will support Laconic parser here
         #elif ext in ['.yaml', '.yml']:

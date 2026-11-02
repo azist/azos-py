@@ -5,6 +5,7 @@ Copyright (C) 2011 - 2026 Azist, MIT License
 """
 
 from functools import lru_cache
+from os import name
 from typing import override
 import json
 import re
@@ -246,14 +247,15 @@ class PgConnector(AppComponent):
         if self._active:
             raise RuntimeError("__aenter()__ on already open PgConnector")
 
-        pools = self._cfg.navigate_required_value("pools")
-
-        if not isinstance(pools, list) or not pools:
-            raise ValueError("No connection pools defined in the configuration.")
+        pools = [Descriptor(map, self.chassis, self._cfg, f"/[name={map.get("name")}]",) for map in self._cfg.as_required_list("pools")]
 
         try:
             for pool_config in pools:
-                name = pool_config.as_str("name")
+                name = (pool_config.as_str("name") or "").strip().lower()
+
+                if name == "":
+                    raise ValueError(f"Connection pool name is required in {self._cfg.scope_path}")
+
                 if name in self._pools:
                     raise ValueError(f"Duplicate connection pool name: {name}")
 

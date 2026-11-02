@@ -1,0 +1,8 @@
+/* Included list with comments */
+[
+  "alpha", // first
+  /* "skipped", */
+  "/* beta */",
+  "// gamma",
+  "'//' \"/*\" \"\"\"*/\"\"\"" // quotes of all kinds around comment markers
+]

@@ -12,7 +12,7 @@ import json
 import os
 from configparser import ConfigParser
 from contextlib import contextmanager
-from typing import Iterator
+from typing import Any, Iterator
 
 import pytest
 
@@ -533,3 +533,82 @@ def test_process_includes_same_file_instances_are_independent():
 def test_load_data_from_file_missing():
     with pytest.raises(FileNotFoundError):
         FileChassisDescriptorFactory.load_data_from_file(os.path.join(CFG_DIR, "nope.json"))
+
+
+# ----------------------------------------------------------------------------------------------------------------------
+# JSONC comments
+# ----------------------------------------------------------------------------------------------------------------------
+
+COMMENTS_LIST = ["alpha", "/* beta */", "// gamma", "'//' \"/*\" \"\"\"*/\"\"\""]
+
+
+def test_comments_root_and_includes():
+    """Both `//` and `/* */` comments are stripped from the root and (nested) included files,
+    while comment markers inside string literals are kept"""
+    with chassis("comments", "dev") as app:
+        d = app.descriptor
+        assert d.as_str("name") == "comments"
+        assert d.as_str("env") == "dev"
+        assert d.as_str("url", verbatim=True) == "https://azist.com/path//double//slash"
+        assert d.as_str("dq", verbatim=True) == "a // not a comment /* not a block */ b"
+        assert d.as_str("sq", verbatim=True) == "'// single quoted line' and '/* single quoted block */'"
+        assert d.as_str("tq", verbatim=True) == '""" // triple quoted line /* triple quoted block */ """'
+        assert d.as_str("escaped", verbatim=True) == 'say "// hi" and \\'
+        assert d.as_str("path", verbatim=True) == "c:\\dir\\"
+        assert d.as_str("only_slashes", verbatim=True) == "//"
+        assert d.as_str("only_block", verbatim=True) == "/**/"
+        assert d.as_list("nums") == [1, 2, 3]
+        assert d.as_list("list") == COMMENTS_LIST
+
+        assert d.as_dict("part") == {
+            "company": "Azist",
+            "motto": "it's /* not */ a comment, // really",
+            "quote": '"""/* triple */""" and \'// single\'',
+            "nested": COMMENTS_LIST,
+        }
+
+
+def test_comments_only_expected_keys():
+    """Commented-out keys never make it into the data"""
+    with chassis("comments", "dev") as app:
+        data = app.descriptor.data
+        assert set(data.keys()) == {"name", "env", "url", "dq", "sq", "tq", "escaped", "path",
+                                    "only_slashes", "only_block", "nums", "part", "list"}
+        assert "commented_out" not in data["part"]
+        assert "also_commented_out" not in data["part"]
+        assert "skipped" not in data["list"]
+
+
+def test_comments_load_data_from_file_list():
+    """An included list file with comments loads standalone"""
+    assert FileChassisDescriptorFactory.load_data_from_file(os.path.join(CFG_DIR, "parts", "comments-b.json")) == COMMENTS_LIST
+
+
+@pytest.mark.parametrize("src, expected", [
+    ('{"a": 1} // tail', {"a": 1}),
+    ('{"a": /* x */ 1}', {"a": 1}),
+    ('{"a": "// x"}', {"a": "// x"}),
+    ('{"a": "/* x */"}', {"a": "/* x */"}),
+    ('{"a": "\'// x\'"}', {"a": "'// x'"}),
+    ('{"a": "\'/* x */\'"}', {"a": "'/* x */'"}),
+    ('{"a": "\\"\\"\\" // x \\"\\"\\""}', {"a": '""" // x """'}),
+    ('{"a": "\\"\\"\\" /* x */ \\"\\"\\""}', {"a": '""" /* x */ """'}),
+    ('{"a": "\\\\"} // "b"', {"a": "\\"}),
+    ('{"a": "x"} /* it\'s "open */', {"a": "x"}),
+    ('{"a": 1, /* "b": 2, */ "c": 3}', {"a": 1, "c": 3}),
+    ('{"a": 1,\n// "b": 2,\n"c": 3}', {"a": 1, "c": 3}),
+])
+def test_comments_in_file(tmp_path, src: str, expected: Any):
+    """Comments in a file are stripped, comment-like content of string literals is preserved"""
+    fn = tmp_path / "c.json"
+    fn.write_text(src, encoding="utf-8")
+    assert FileChassisDescriptorFactory.load_data_from_file(str(fn)) == expected
+
+
+def test_comments_block_keeps_line_numbers(tmp_path):
+    """Multi-line block comments keep their line breaks, so JSON errors report original line numbers"""
+    fn = tmp_path / "c.json"
+    fn.write_text('{\n/*\n\n\n*/\n"a": oops\n}', encoding="utf-8")
+    with pytest.raises(json.JSONDecodeError) as exc_info:
+        FileChassisDescriptorFactory.load_data_from_file(str(fn))
+    assert exc_info.value.lineno == 6
