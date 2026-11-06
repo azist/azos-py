@@ -309,7 +309,7 @@ class PgConnector(AppComponent):
         :return: An asyncpg.pool.Pool instance.
         """
         return await asyncpg.create_pool(dsn=pool_config.as_str("dsn"),
-                                         min_size=pool_config.as_int("min-size") or 1,
+                                         min_size=pool_config.as_int("min-size") or 0,
                                          max_size=pool_config.as_int("max-size") or 2,
                                          timeout=pool_config.as_float("timeout") or 10.5,
                                          max_queries=pool_config.as_int("max-queries") or 500,
