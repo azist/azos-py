@@ -222,7 +222,7 @@ class SGAMemory(AsyncDaemon):
         ...
 
 
-    async def task_slice_release_ok(self, handle: TaskSliceHandle, result: dict | None) -> None:
+    async def task_slice_release_success(self, handle: TaskSliceHandle, result: dict | None) -> None:
         """
         Releases the slice back to SGA and marks it as completed successfully, so that it can stop being considered
         for future work. The result is set on a slice level if any.

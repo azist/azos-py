@@ -14,6 +14,7 @@ from azos.ambient import Ambient
 from azos.chassis import AppChassis, AppComponent
 from azos.daemons import IAsyncDaemonControl
 from azos.db.pgconnector import PgConnector, bind
+from azos.descriptor import Descriptor
 from azos.exceptions import AzosError
 from azos.gdid8 import GDIDGenerator
 import azos.sky.constraints as sz
@@ -73,8 +74,8 @@ class PgSGAMemory(SGAMemory):
     such as: tasks, slices, mutexes and completion slots in RDBMS tables in PG SQL database
     """
 
-    def __init__(self, chassis: AppChassis, director: AppComponent | None = None) -> None:
-        super().__init__(chassis, director)
+    def __init__(self, chassis: AppChassis, director: AppComponent | None , config: Descriptor) -> None:
+        super().__init__(chassis, director, config)
         self._pgc: PgConnector | None = None
         self._gdid: GDIDGenerator | None = None
 
@@ -263,3 +264,31 @@ class PgSGAMemory(SGAMemory):
 
         if count:
             self._log.info(f"Dropped {count} expired slots in {elapsed_ms:.2f} ms")
+
+
+    #################################################################################
+    # Tasks
+    #################################################################################
+
+    @override
+    async def ensure_task_invariants(self):
+        if not self.is_daemon_active: return
+        #todo Implement Invariants logic here
+        ...
+
+    # List of task operations:
+    # ------------------------
+    # task_create(slices[]) -> TaskHandle
+    # task_slice_acquire() -> TaskSliceHandle
+    # task_slice_release_failed(handle: TaskSliceHandle, error: Exception)
+    # task_slice_release_success(handle: TaskSliceHandle, result: dict | None)
+    # task_set_bad_request(handle: TaskHandle, message: str, data: dict | None) -> bool
+    # task_kill(handle: TaskHandle, message: str, data: dict | None) -> bool
+
+    # Dima todo:
+    # 1. Check all SGAMemoryStructure for alignment of fields with DB, e.g. is "ctag" returned with handle
+    # 2. Check all methods Availability in SGAMemory first
+    # 3. Analyze state machine yet again, e.g. what happens if task is killed while slice is being processed, etc.
+    # 4. Do we need slice invariants (e.g. when max retry count is reached?)
+    # 5. Revise Task and task slice indexing - remove duplicate indexes
+    # 6. Implement methods above including invariants ensurance
