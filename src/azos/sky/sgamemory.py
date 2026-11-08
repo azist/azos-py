@@ -23,6 +23,7 @@ Copyright (C) 2020 - 2026 Azist, MIT License
 
 from asyncio import Event
 from dataclasses import dataclass
+from datetime import datetime
 from random import uniform
 from typing import override
 
@@ -38,7 +39,118 @@ import azos.sky.constraints as sz
 class TaskHandle:
     """Controls a distributed task as a whole in SGA, used by task-level calls such as kill/bad request"""
     g_task: int
-    trace_uuid: str
+    """Unique task id assigned at creation"""
+
+    ctag: str
+    """UUID assigned at creation which can be used for log correlation"""
+
+
+@dataclass(frozen=True, slots=True)
+class TaskCreateArgs:
+    """
+    Arguments to create task, upon creation the system assigns a unique g_task and ctag trace id to the task, which
+     are returned in `TaskHandle`
+    """
+
+    title: str
+    """Task title used for admin/UI"""
+
+    app: str
+    """Application id to execute"""
+
+    component: str
+    """Application component within application to execute"""
+
+    nice: int
+    """Task niceness similar to .NIX"""
+
+    start_utc: datetime
+    """Start UTC date: task can not start before this date"""
+
+    end_utc: datetime
+    """After this UTC date task would not run. If it has not started it will become stale"""
+
+    mode: int
+    """
+    0 = autofail: any slice failure will auto fail task into 500 status code - which is STOPPED/Permanent Failure
+    100 = manual: task will not auto-fail on slice failure, it will stay in running state until admin manually stops it or it succeeds
+    """
+
+    retry_limit: int
+    """
+    How many times the failing slices will be tried to re-run before aborting the slice
+    If 0 then no automatic retries are attempted, if 1 then one retry is attempted, etc.
+    """
+
+    slice_timeout_sec: int
+    """
+    Max run time of any one slice execution, in seconds (1..86400), same for all slices of the task.
+    A slice that stays in status 100 longer than this since start_utc is considered abandoned by a dead worker
+    and is failed/retried by the system. Slices have no heartbeat so this must be the max legitimate slice runtime
+    """
+
+    g_antecedent: int | None
+    """
+    Optional task which acts as a guard that prevents execution of this one until it is completed (any terminal status).
+    This task will start execution when SD/ED allows AND the antecedent task is completed in an acceptable way (see antecedent_success).
+    If antecedent task is deleted then this task will not execute and becomes stale (600)
+    """
+
+    antecedent_success: bool
+    """
+    True then only antecedent success (200) allows this task to run,
+    false then ANY antecedent terminal status (200 or any failure 4xx/5xx/6xx) allows this task to run
+    """
+
+    principal_id: str | None
+    """Optional security principal id on behalf of which the task executes"""
+
+    status_msg: str | None
+    """Optional status message for admin/debug purposes"""
+
+    status_data: dict | None
+    """
+    Status data, such as exception for terminal states, do not confuse with
+    task result which is stored in slices, this is just a status data for the task itself
+    """
+
+    target_id: str | None
+    """Target context ID, such as a FILE to process"""
+
+    args: dict
+    """
+    Task Arguments, you can pass result mailbox here if you want to return a result from the task
+    otherwise the task has no result of its own
+    """
+
+    create_component: str
+    """Component id that created the task (crt_cmp)"""
+
+
+    def __post_init__(self):
+        Validol(self) \
+          .is_str('title', True, 1, sz.TASK_TITLE_MAX_LEN) \
+          .is_str('app', True, 1, sz.APP_NAME_MAX_LEN) \
+          .is_str('component', True, 1, sz.APP_COMPONENT_MAX_LEN) \
+          .is_int('nice', True) \
+          .is_float('start_utc', True, 0) \
+          .is_float('end_utc', True, 0) \
+          .test('End date must be after start date', lambda v: v.target.end_utc > v.target.start_utc) \
+          .test('Mode must be 0 (autofail) or 100 (manual)', lambda v: v.target.mode in (0, 100)) \
+          .is_int('retry_limit', True, 0) \
+          .is_int('slice_timeout_sec', True, 1, sz.TASK_SLICE_TIMEOUT_MAX_SEC) \
+          .is_int('g_antecedent', False, 1) \
+          .is_bool('antecedent_success', True) \
+          .is_str('principal_id', False, 1, sz.ENTITY_ID_MAX_LEN) \
+          .is_str('status_msg', False, 1, sz.TASK_STATUS_MSG_MAX_LEN) \
+          .test('Status data must be a dict within entry count limit', lambda v: v.target.status_data is None or (isinstance(v.target.status_data, dict) and len(v.target.status_data) <= sz.MAX_ENTRY_COUNT)) \
+          .is_str('target_id', False, 1, sz.ENTITY_ID_MAX_LEN) \
+          .test('Args must be a dict within entry count limit', lambda v: isinstance(v.target.args, dict) and len(v.target.args) <= sz.MAX_ENTRY_COUNT) \
+          .is_str('create_component', True, 1, sz.APP_COMPONENT_MAX_LEN) \
+          .throw()
+
+
+
 
 
 @dataclass(frozen=True, slots=True)
@@ -189,6 +301,15 @@ class SGAMemory(AsyncDaemon):
     async def ensure_task_invariants(self):
         """TID - TaskInvariantDaemon: Ensures that all tasks in SGA are in a valid state, e.g. slices that are abandoned are failed, etc"""
         if not self.is_daemon_active: return
+        ...
+
+
+    async def task_create(self, args: TaskCreateArgs) -> TaskHandle | None:
+        """
+        Creates a new task in SGA. Returns a handle to the task or None if the system is shutting down.
+        The task is created in PENDING state (0) and is not yet eligible for execution until its start date arrives.
+        """
+        if not self.is_daemon_active: return None
         ...
 
 

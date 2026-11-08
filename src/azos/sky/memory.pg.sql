@@ -184,7 +184,7 @@ create table tbl_task
     "antecedent_success" boolean not null, -- True then only antecedent success (200) allows this task to run,
                                            -- false then ANY antecedent terminal status (200 or any failure 4xx/5xx/6xx) allows this task to run
 
-    "principal_id"  varchar(128),          -- Optional security principal on behalf of which the task executes
+    "principal_id"  varchar(128),          -- Optional security principal id on behalf of which the task executes
 
     -- Who sets the task status:
     -- The task status is set by TASK MEMORY INVARIANT runtime code which sets status based on the state of slices.
