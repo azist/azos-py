@@ -52,6 +52,23 @@ class TaskCreateArgs:
      are returned in `TaskHandle`
     """
 
+    @dataclass(frozen=True, slots=True)
+    class SliceCreateArgs:
+        """
+        Arguments to create task slice used within `TaskCreateArgs.slices` list, upon creation the system assigns a
+        unique g_slice to the slice
+        """
+
+        args:  dict
+        """Task Slice arguments"""
+
+        def __post_init__(self):
+            Validol(self) \
+                .test('Args must be a dict within entry count limit', lambda v: isinstance(v.target.args, dict) and len(v.target.args) <= sz.TASK_ARGS_MAX_ENTRY_COUNT) \
+                .throw()
+
+
+
     title: str
     """Task title used for admin/UI"""
 
@@ -127,6 +144,8 @@ class TaskCreateArgs:
     """Component id that created the task (crt_cmp)"""
 
 
+    slices: list[SliceCreateArgs]
+
     def __post_init__(self):
         Validol(self) \
           .is_str('title', True, 1, sz.TASK_TITLE_MAX_LEN) \
@@ -135,7 +154,7 @@ class TaskCreateArgs:
           .is_int('nice', True) \
           .is_float('start_utc', True, 0) \
           .is_float('end_utc', True, 0) \
-          .test('End date must be after start date', lambda v: v.target.end_utc > v.target.start_utc) \
+          .test('End date must greater than start date', lambda v: v.target.end_utc > v.target.start_utc) \
           .test('Mode must be 0 (autofail) or 100 (manual)', lambda v: v.target.mode in (0, 100)) \
           .is_int('retry_limit', True, 0) \
           .is_int('slice_timeout_sec', True, 1, sz.TASK_SLICE_TIMEOUT_MAX_SEC) \
@@ -143,10 +162,19 @@ class TaskCreateArgs:
           .is_bool('antecedent_success', True) \
           .is_str('principal_id', False, 1, sz.ENTITY_ID_MAX_LEN) \
           .is_str('status_msg', False, 1, sz.TASK_STATUS_MSG_MAX_LEN) \
-          .test('Status data must be a dict within entry count limit', lambda v: v.target.status_data is None or (isinstance(v.target.status_data, dict) and len(v.target.status_data) <= sz.MAX_ENTRY_COUNT)) \
+          .test(f'Status data must be a dict within entry count limit of {sz.TASK_ARGS_MAX_ENTRY_COUNT} or null',
+                lambda v: v.target.status_data is None or
+                         (isinstance(v.target.status_data, dict) and
+                         len(v.target.status_data) <= sz.TASK_ARGS_MAX_ENTRY_COUNT)) \
           .is_str('target_id', False, 1, sz.ENTITY_ID_MAX_LEN) \
-          .test('Args must be a dict within entry count limit', lambda v: isinstance(v.target.args, dict) and len(v.target.args) <= sz.MAX_ENTRY_COUNT) \
+          .test(f'Args must be a dict within entry count limit of {sz.TASK_ARGS_MAX_ENTRY_COUNT}',
+                lambda v: isinstance(v.target.args, dict) and
+                           len(v.target.args) <= sz.TASK_ARGS_MAX_ENTRY_COUNT) \
           .is_str('create_component', True, 1, sz.APP_COMPONENT_MAX_LEN) \
+          .test(f'Slices must be a list of SliceCreateArgs up to {sz.TASK_MAX_SLICE_COUNT} entries',
+                lambda v: isinstance(v.target.slices, list) and
+                           len(v.target.slices) <= sz.TASK_MAX_SLICE_COUNT and
+                           all(isinstance(s, TaskCreateArgs.SliceCreateArgs) for s in v.target.slices)) \
           .throw()
 
 
