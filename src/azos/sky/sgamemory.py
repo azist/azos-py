@@ -21,6 +21,7 @@ Copyright (C) 2020 - 2026 Azist, MIT License
 """
 
 
+from abc import abstractmethod
 from asyncio import Event
 from dataclasses import dataclass
 from datetime import datetime
@@ -409,52 +410,48 @@ class SGAMemory(AsyncDaemon):
           await self.ensure_task_invariants()
 
 
+    @abstractmethod
     async def drop_expired_mutexes(self):
         """Drops all mutexes that reached past EOL and never released"""
-        if not self.is_daemon_active: return
-        ...
 
-
+    @abstractmethod
     async def drop_expired_slots(self):
         """Drops all slots that reached past EOL and never deleted"""
-        if not self.is_daemon_active: return
-        ...
 
-
+    @abstractmethod
     async def ensure_task_invariants(self):
         """TID - TaskInvariantDaemon: Ensures that all tasks in SGA are in a valid state, e.g. slices that are abandoned are failed, etc"""
-        if not self.is_daemon_active: return
-        ...
 
 
+    @abstractmethod
+    async def task_get_list(self, filter: str) -> list[TaskInfo]:
+        """
+        Returns a list of tasks in SGA, optionally filtered by app and/or component.
+        This is a lightweight call that does not return task arguments or status data.
+        """
 
+    @abstractmethod
     async def task_get_info(self, g_task: int) -> TaskInfo | None:
         """
         Returns read-only information about a task, or None if the task does not exist.
         This is a lightweight call that does not return task arguments or status data.
         """
-        if not self.is_daemon_active: return None
-        ...
 
+    @abstractmethod
     async def task_get_detailed_info(self, g_task: int) -> TaskDetailedInfo | None:
         """
         Returns read-only detailed information about a task, or None if the task does not exist.
         This is a lightweight call that does not return task arguments or status data.
         """
-        if not self.is_daemon_active: return None
-        ...
 
-
-
+    @abstractmethod
     async def task_create(self, args: TaskCreateArgs) -> TaskHandle | None:
         """
         Creates a new task in SGA. Returns a handle to the task or None if the system is shutting down.
         The task is created in PENDING state (0) and is not yet eligible for execution until its start date arrives.
         """
-        if not self.is_daemon_active: return None
-        ...
 
-
+    @abstractmethod
     async def task_slice_acquire(self, app: str, component: str) -> TaskSliceHandle | None:
         """
         Retrieves a slice of pending work for tasks scheduled to run by specific app and component.
@@ -468,10 +465,8 @@ class SGAMemory(AsyncDaemon):
         Acquire is non-blocking (`FOR UPDATE SKIP LOCKED`). It sets slice status 100 and increments `run_count`.
         See memory.tasks.prd.md section 7.1.
         """
-        if not self.is_daemon_active: return None
-        ...
 
-
+    @abstractmethod
     async def task_slice_release_failed(self, handle: TaskSliceHandle, error: Exception) -> None:
         """
         Releases the slice back to SGA and marks it as failed. The outcome is decided atomically: if retries remain
@@ -481,20 +476,16 @@ class SGAMemory(AsyncDaemon):
         A release for an attempt that is no longer current (the slice was reaped as abandoned and re-acquired) is ignored.
         See memory.tasks.prd.md sections 5.1 and 7.3.
         """
-        if not self.is_daemon_active: return
-        ...
 
-
+    @abstractmethod
     async def task_slice_release_success(self, handle: TaskSliceHandle, result: dict | None) -> None:
         """
         Releases the slice back to SGA and marks it as completed successfully, so that it can stop being considered
         for future work. The result is set on a slice level if any.
         A release for an attempt that is no longer current is ignored (memory.tasks.prd.md section 7.3).
         """
-        if not self.is_daemon_active: return
-        ...
 
-
+    @abstractmethod
     async def task_set_bad_request(self, handle: TaskHandle, message: str, data: dict | None = None) -> bool:
         """
         Terminates the whole task as invalid (status 400): its arguments are not valid in principle, e.g. unknown
@@ -504,11 +495,8 @@ class SGAMemory(AsyncDaemon):
         Only a task in a non-terminal status (0/100/120) is changed; slices are not touched.
         Returns True if the task was changed, False if it does not exist or is already terminal.
         """
-        if not self.is_daemon_active: return False
-        ...
-        return False
 
-
+    @abstractmethod
     async def task_kill(self, handle: TaskHandle, message: str, data: dict | None = None) -> bool:
         """
         Terminates the whole task by KILL signal (status 550). Only a task in a non-terminal status (0/100/120) is changed;
@@ -517,11 +505,8 @@ class SGAMemory(AsyncDaemon):
         optional `data` is stored in the task `status_data`.
         Returns True if the task was changed, False if it does not exist or is already terminal.
         """
-        if not self.is_daemon_active: return False
-        ...
-        return False
 
-
+    @abstractmethod
     async def mutex_set(self, args: MutexSetArgs) -> MutexHandle | None:
         """
         Sets the mutex or throws if the mutex is already set by another process.
@@ -529,32 +514,21 @@ class SGAMemory(AsyncDaemon):
         early if you are done with it.
         None is returned if the system can not set mutexes now, e.g. shutting down
         """
-        if not self.is_daemon_active: return None
-        ...
 
-
+    @abstractmethod
     async def mutex_release(self, handle: MutexHandle) -> bool | None:
         """
         Releases the mutex. True if it was released, False if not found/already released.
         """
-        if not self.is_daemon_active: return None
-        ...
-        return True
 
-
+    @abstractmethod
     async def ram_slot_set(self, args: RamSlotSetArgs) -> RamSlotData | None:
         """Sets the RAM slot record or throws if bad data. None if system is shutting down"""
-        if not self.is_daemon_active: return None
-        ...
 
-
+    @abstractmethod
     async def ram_slot_get(self, args: RamSlotGetArgs) -> RamSlotData | None:
-        if not self.is_daemon_active: return None
-        ...
+        """Returns the RAM slot record or None if not found"""
 
-
+    @abstractmethod
     async def ram_slot_delete(self, args: RamSlotGetArgs) -> bool:
         """Deletes the RAM slot record. Returns True if deleted, False if not found"""
-        if not self.is_daemon_active: return False
-        ...
-        return True
