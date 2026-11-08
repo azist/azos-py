@@ -6,9 +6,10 @@ Copyright (C) 2011 - 2026 Azist, MIT License
 
 from functools import lru_cache
 from os import name
-from typing import override
+from typing import Callable, override
 import json
 import re
+import ast
 
 import asyncio
 import asyncpg
@@ -354,3 +355,105 @@ class PgConnector(AppComponent):
             raise ValueError(f"No connection pool named: `{name}`")
 
         return pool.acquire()
+
+
+class PgASTXlat(ast.NodeVisitor):
+    """
+    Translates a Python AST expression into a SQL filter expression.
+    Use `PgASTXlat().from_string(filter_str)` to get a parameterized SQL string and a list of query
+    arguments.
+
+    `limits` is an optional list of allowed column names; `None` or empty allows any column.
+    `convert` is an optional `(xlat, column, value) -> object` callable which converts the constant
+    compared with a column into the query argument. Alternatively, override `do_convert()`.
+    """
+
+    SQL_OPS = {
+        ast.Eq: "=",
+        ast.NotEq: "!=",
+        ast.Gt: ">",
+        ast.GtE: ">=",
+        ast.Lt: "<",
+        ast.LtE: "<="
+    }
+
+    def __init__(self,
+                 limits: list[str] | None = None,
+                 convert: Callable[["PgASTXlat", str, object], object] | None = None):
+        self.params = []
+        self.converted: dict[int, object] = {}
+        self.limits = frozenset(limits) if limits else None
+        self.convert = convert
+
+    def do_convert(self, column: str, value: object) -> object:
+        """
+        Override to convert/validate the constant `value` compared with `column`. Default calls
+        the `convert` callable, if any, otherwise returns the value as-is. Raise to reject.
+        """
+        return self.convert(self, column, value) if self.convert is not None else value
+
+    def from_string(self, filter: str) -> tuple[str, list]:
+        filter_expr = ast.parse(filter, mode='eval')
+        return self.from_expression(filter_expr)
+
+    def from_expression(self, expression: ast.Expression) -> tuple[str, list]:
+        """
+        Returns a parameterized SQL string and a list of query arguments.
+        """
+        self.params = []
+        self.converted = {}
+        sql_string = self.visit(expression)
+        return sql_string, self.params
+
+    def __fail(self, msg: str, node: ast.AST | None = None) -> AzosError:
+        return AzosError(
+            message=msg,
+            topic="pgconnector",
+            frm=f"PgASTXlat(`{type(node).__name__ if node is not None else ''}`)",
+            src=0
+        )
+
+    @override
+    def generic_visit(self, node: ast.AST):
+        raise self.__fail(f"Unsupported filter expression element: `{type(node).__name__}`", node)
+
+    def visit_Expression(self, node: ast.Expression) -> str:
+        return self.visit(node.body)
+
+    def visit_Name(self, node: ast.Name) -> str:
+        # Name is a column identifier; always quoted, and Python identifiers cannot contain quotes
+        if self.limits is not None and node.id not in self.limits:
+            raise self.__fail(f"Column `{node.id}` is not allowed in filter", node)
+        return f'"{node.id}"'
+
+    def visit_Constant(self, node: ast.Constant) -> str:
+        self.params.append(self.converted.get(id(node), node.value))
+        return f"${len(self.params)}"
+
+    def __convert_pair(self, a: ast.AST, b: ast.AST) -> None:
+        """If `a` is a column and `b` is a constant, converts the constant for that column."""
+        if isinstance(a, ast.Name) and isinstance(b, ast.Constant):
+            self.converted[id(b)] = self.do_convert(a.id, b.value)
+
+    def visit_Compare(self, node: ast.Compare) -> str:
+        """
+        Translates `=`, `!=`, `>`, `>=`, `<`, `<=` comparisons. Chained comparisons `a < b <= c`
+        become `(a < b AND b <= c)`. Comparing with `None` using `==`/`!=` yields `IS NULL`/`IS NOT NULL`.
+        """
+        operands = [node.left, *node.comparators]
+        parts = []
+        for i, op in enumerate(node.ops):
+            sql_op = self.SQL_OPS.get(type(op))
+            if sql_op is None:
+                raise self.__fail(f"Unsupported comparison operator: `{type(op).__name__}`", node)
+
+            left, right = operands[i], operands[i + 1]
+            if isinstance(right, ast.Constant) and right.value is None and isinstance(op, (ast.Eq, ast.NotEq)):
+                null_op = "IS NULL" if isinstance(op, ast.Eq) else "IS NOT NULL"
+                parts.append(f"{self.visit(left)} {null_op}")
+            else:
+                self.__convert_pair(left, right)
+                self.__convert_pair(right, left)
+                parts.append(f"{self.visit(left)} {sql_op} {self.visit(right)}")
+
+        return parts[0] if len(parts) == 1 else f"({' AND '.join(parts)})"

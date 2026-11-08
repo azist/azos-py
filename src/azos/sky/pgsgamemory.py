@@ -278,6 +278,9 @@ class PgSGAMemory(SGAMemory):
 
     # List of task operations:
     # ------------------------
+    # task_list(filter: str) -> list[TaskInfo]
+    # task_get(handle: TaskHandle) -> TaskInfo | None
+    # task_get_details(handle: TaskHandle) -> TaskDetails | None
     # task_create(slices[]) -> TaskHandle
     # task_slice_acquire() -> TaskSliceHandle
     # task_slice_release_failed(handle: TaskSliceHandle, error: Exception)

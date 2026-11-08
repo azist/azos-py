@@ -392,7 +392,6 @@ class SGAMemory(AsyncDaemon):
     def interval_s(self) -> float:
         return uniform(10, 10 + self._jitter_s)
 
-
     @override
     async def do_work(self, stop_event: Event) -> None:
         if stop_event.is_set(): return
@@ -409,7 +408,7 @@ class SGAMemory(AsyncDaemon):
           if await self._random_delay(stop_event, 1.5, 7.5): return
           await self.ensure_task_invariants()
 
-
+    #region ### System Behaviors ###
     @abstractmethod
     async def drop_expired_mutexes(self):
         """Drops all mutexes that reached past EOL and never released"""
@@ -421,26 +420,21 @@ class SGAMemory(AsyncDaemon):
     @abstractmethod
     async def ensure_task_invariants(self):
         """TID - TaskInvariantDaemon: Ensures that all tasks in SGA are in a valid state, e.g. slices that are abandoned are failed, etc"""
+    #endregion
 
 
+    #region #### TASKS ####
     @abstractmethod
     async def task_get_list(self, filter: str) -> list[TaskInfo]:
         """
-        Returns a list of tasks in SGA, optionally filtered by app and/or component.
+        Returns a list of tasks in SGA, optionally filtered by filter expression which is processed using ast.
         This is a lightweight call that does not return task arguments or status data.
         """
 
     @abstractmethod
-    async def task_get_info(self, g_task: int) -> TaskInfo | None:
+    async def task_get_info(self, g_task: int, details: bool = False) -> TaskInfo | TaskDetailedInfo | None:
         """
         Returns read-only information about a task, or None if the task does not exist.
-        This is a lightweight call that does not return task arguments or status data.
-        """
-
-    @abstractmethod
-    async def task_get_detailed_info(self, g_task: int) -> TaskDetailedInfo | None:
-        """
-        Returns read-only detailed information about a task, or None if the task does not exist.
         This is a lightweight call that does not return task arguments or status data.
         """
 
@@ -505,7 +499,10 @@ class SGAMemory(AsyncDaemon):
         optional `data` is stored in the task `status_data`.
         Returns True if the task was changed, False if it does not exist or is already terminal.
         """
+    #endregion
 
+
+    #region ### Mutexes ###
     @abstractmethod
     async def mutex_set(self, args: MutexSetArgs) -> MutexHandle | None:
         """
@@ -520,7 +517,10 @@ class SGAMemory(AsyncDaemon):
         """
         Releases the mutex. True if it was released, False if not found/already released.
         """
+    #endregion
 
+
+    #region ### RAM Slots ###
     @abstractmethod
     async def ram_slot_set(self, args: RamSlotSetArgs) -> RamSlotData | None:
         """Sets the RAM slot record or throws if bad data. None if system is shutting down"""
@@ -532,3 +532,5 @@ class SGAMemory(AsyncDaemon):
     @abstractmethod
     async def ram_slot_delete(self, args: RamSlotGetArgs) -> bool:
         """Deletes the RAM slot record. Returns True if deleted, False if not found"""
+    #endregion
+

@@ -46,7 +46,8 @@
         "Sysdat",
         "sysdba",
         "taskslice",
-        "Validol"
+        "Validol",
+        "Xlat"
     ],
     "workbench.tree.indent": 28,
     "files.eol": "\n",
