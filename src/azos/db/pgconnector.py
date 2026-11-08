@@ -10,6 +10,7 @@ from typing import Callable, override
 import json
 import re
 import ast
+import copy
 
 import asyncio
 import asyncpg
@@ -357,11 +358,28 @@ class PgConnector(AppComponent):
         return pool.acquire()
 
 
+class _FoldSigns(ast.NodeTransformer):
+    """Folds unary signs applied to numeric literals, e.g. `-5`, into constants"""
+
+    def visit_UnaryOp(self, node: ast.UnaryOp) -> ast.AST:
+        self.generic_visit(node)
+        operand = node.operand
+        if isinstance(node.op, (ast.USub, ast.UAdd)) and isinstance(operand, ast.Constant):
+            value = operand.value
+            if type(value) is int or type(value) is float:
+                return ast.copy_location(ast.Constant(-value if isinstance(node.op, ast.USub) else value), node)
+        return node
+
+
 class PgASTXlat(ast.NodeVisitor):
     """
     Translates a Python AST expression into a SQL filter expression.
     Use `PgASTXlat().from_string(filter_str)` to get a parameterized SQL string and a list of query
     arguments.
+
+    Supported: `==`, `!=`, `>`, `>=`, `<`, `<=` (including chained), `in`/`not in` against a list/tuple/set
+    of constants, `and`, `or`, `not`, and parentheses. Anything else raises `AzosError`. Each comparison
+    must reference at least one column.
 
     `limits` is an optional list of allowed column names; `None` or empty allows any column.
     `convert` is an optional `(xlat, column, value) -> object` callable which converts the constant
@@ -393,7 +411,10 @@ class PgASTXlat(ast.NodeVisitor):
         return self.convert(self, column, value) if self.convert is not None else value
 
     def from_string(self, filter: str) -> tuple[str, list]:
-        filter_expr = ast.parse(filter, mode='eval')
+        try:
+            filter_expr = ast.parse(filter, mode='eval')
+        except (SyntaxError, ValueError) as e:
+            raise self.__fail(f"Invalid filter expression: {e}") from e
         return self.from_expression(filter_expr)
 
     def from_expression(self, expression: ast.Expression) -> tuple[str, list]:
@@ -402,6 +423,7 @@ class PgASTXlat(ast.NodeVisitor):
         """
         self.params = []
         self.converted = {}
+        expression = _FoldSigns().visit(copy.deepcopy(expression))
         sql_string = self.visit(expression)
         return sql_string, self.params
 
@@ -417,14 +439,31 @@ class PgASTXlat(ast.NodeVisitor):
     def generic_visit(self, node: ast.AST):
         raise self.__fail(f"Unsupported filter expression element: `{type(node).__name__}`", node)
 
+    def __predicate(self, node: ast.AST) -> str:
+        if not isinstance(node, (ast.Compare, ast.BoolOp, ast.UnaryOp)):
+            raise self.__fail("Filter must be a comparison or a logical combination of comparisons", node)
+        return self.visit(node)
+
     def visit_Expression(self, node: ast.Expression) -> str:
-        return self.visit(node.body)
+        return self.__predicate(node.body)
+
+    def visit_BoolOp(self, node: ast.BoolOp) -> str:
+        sql_op = "AND" if isinstance(node.op, ast.And) else "OR"
+        return "(" + f" {sql_op} ".join(self.__predicate(v) for v in node.values) + ")"
+
+    def visit_UnaryOp(self, node: ast.UnaryOp) -> str:
+        if not isinstance(node.op, ast.Not):
+            raise self.__fail(f"Unsupported unary operator: `{type(node.op).__name__}`", node)
+        return f"(NOT {self.__predicate(node.operand)})"
 
     def visit_Name(self, node: ast.Name) -> str:
         # Name is a column identifier; always quoted, and Python identifiers cannot contain quotes
+        self.__check_column(node)
+        return f'"{node.id}"'
+
+    def __check_column(self, node: ast.Name) -> None:
         if self.limits is not None and node.id not in self.limits:
             raise self.__fail(f"Column `{node.id}` is not allowed in filter", node)
-        return f'"{node.id}"'
 
     def visit_Constant(self, node: ast.Constant) -> str:
         self.params.append(self.converted.get(id(node), node.value))
@@ -433,24 +472,52 @@ class PgASTXlat(ast.NodeVisitor):
     def __convert_pair(self, a: ast.AST, b: ast.AST) -> None:
         """If `a` is a column and `b` is a constant, converts the constant for that column."""
         if isinstance(a, ast.Name) and isinstance(b, ast.Constant):
+            self.__check_column(a)
             self.converted[id(b)] = self.do_convert(a.id, b.value)
+
+    def __in_list(self, column: ast.AST, values: ast.AST, negate: bool) -> str:
+        if not isinstance(column, ast.Name):
+            raise self.__fail("Left side of `in` must be a column", column)
+        if not isinstance(values, (ast.List, ast.Tuple, ast.Set)) or not values.elts:
+            raise self.__fail("Right side of `in` must be a non-empty list of constants", values)
+        constants = [e for e in values.elts if isinstance(e, ast.Constant) and e.value is not None]
+        if len(constants) != len(values.elts):
+            raise self.__fail("`in` list may only contain non-null constants", values)
+
+        sql_column = self.visit(column)
+        placeholders = []
+        for e in constants:
+            self.params.append(self.do_convert(column.id, e.value))
+            placeholders.append(f"${len(self.params)}")
+        return f"{sql_column} {'NOT IN' if negate else 'IN'} ({', '.join(placeholders)})"
 
     def visit_Compare(self, node: ast.Compare) -> str:
         """
-        Translates `=`, `!=`, `>`, `>=`, `<`, `<=` comparisons. Chained comparisons `a < b <= c`
+        Translates `=`, `!=`, `>`, `>=`, `<`, `<=`, `in`, `not in` comparisons. Chained comparisons `a < b <= c`
         become `(a < b AND b <= c)`. Comparing with `None` using `==`/`!=` yields `IS NULL`/`IS NOT NULL`.
         """
         operands = [node.left, *node.comparators]
         parts = []
         for i, op in enumerate(node.ops):
+            if isinstance(op, (ast.In, ast.NotIn)):
+                parts.append(self.__in_list(operands[i], operands[i + 1], isinstance(op, ast.NotIn)))
+                continue
+
             sql_op = self.SQL_OPS.get(type(op))
             if sql_op is None:
                 raise self.__fail(f"Unsupported comparison operator: `{type(op).__name__}`", node)
 
             left, right = operands[i], operands[i + 1]
-            if isinstance(right, ast.Constant) and right.value is None and isinstance(op, (ast.Eq, ast.NotEq)):
+            if not isinstance(left, ast.Name) and not isinstance(right, ast.Name):
+                raise self.__fail("Comparison must reference at least one column", node)
+
+            is_null_left = isinstance(left, ast.Constant) and left.value is None
+            is_null_right = isinstance(right, ast.Constant) and right.value is None
+            if is_null_left or is_null_right:
+                if not isinstance(op, (ast.Eq, ast.NotEq)):
+                    raise self.__fail("`None` may only be compared using `==` or `!=`", node)
                 null_op = "IS NULL" if isinstance(op, ast.Eq) else "IS NOT NULL"
-                parts.append(f"{self.visit(left)} {null_op}")
+                parts.append(f"{self.visit(right if is_null_left else left)} {null_op}")
             else:
                 self.__convert_pair(left, right)
                 self.__convert_pair(right, left)

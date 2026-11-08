@@ -408,6 +408,7 @@ class SGAMemory(AsyncDaemon):
           if await self._random_delay(stop_event, 1.5, 7.5): return
           await self.ensure_task_invariants()
 
+
     #region ### System Behaviors ###
     @abstractmethod
     async def drop_expired_mutexes(self):
