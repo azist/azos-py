@@ -36,6 +36,101 @@ import azos.sky.constraints as sz
 
 
 @dataclass(frozen=True, slots=True)
+class TaskInfo:
+    """Provides read-only information about tasks"""
+
+    gdid: int
+    """Unique task id assigned at creation"""
+
+    ctag: str
+    """UUID assigned at creation which can be used for log correlation"""
+
+    title: str
+    """Task title used for admin/UI"""
+
+    app: str
+    """Application id to execute"""
+
+    component: str
+    """Application component within application to execute"""
+
+    nice: int
+    """Task niceness similar to .NIX"""
+
+    start_utc: datetime
+    """Start UTC date: task can not start before this date"""
+
+    end_utc: datetime
+    """After this UTC date task would not run. If it has not started it will become"""
+
+    mode: int
+    """Failure modes"""
+
+    retry_limit: int
+    """How many times the failing slices will be tried to re-run before aborting the slice"""
+
+    slice_timeout_sec: int
+    """Max run time of any one slice execution, in seconds (1..86400), same for all slices of the task"""
+
+    g_antecedent: int | None
+    """Optional task which acts as a guard that prevents execution of this one until it is completed"""
+
+    antecedent_success: bool
+    """True then only antecedent success (200) allows this task to run, false then ANY antecedent terminal status (200 or any failure 4xx/5xx/6xx) allows this task to run"""
+
+    principal_id: str | None
+    """Optional security principal id on behalf of which the task executes"""
+
+    status: int
+    """Task execution status"""
+
+    status_msg: str | None
+    """Optional status message for admin/debug purposes"""
+
+    status_utc: datetime
+    """UTC date when the task status was last changed"""
+
+    target_id: str
+    """Target context ID, such as a FILE to process"""
+
+    args_snippet: str
+    """Argument snippet for display purposes"""
+
+
+@dataclass(frozen=True, slots=True)
+class TaskDetailedInfo(TaskInfo):
+    """Provides read-only task details information (e.g. args) """
+
+    status_host: str
+    """Host name of the node that last changed the task status"""
+
+    status_data: dict | None
+    """Status data, such as exception for terminal states"""
+
+    args: dict
+    """Task Arguments, you can pass result mailbox here if you want to return a result from the task otherwise the task has no result of its own"""
+
+    crt_app: str
+    """Application id that created the task"""
+
+    crt_cmp: str
+    """Application component id that created the task"""
+
+    crt_host: str
+    """Host name of the node that created the task"""
+
+    crt_utc: datetime
+    """UTC date when the task was created"""
+
+    crt_actor: str
+    """Optional actor id that created the task, such as a user id"""
+
+    crt_origin: int
+    """Cloud origin id that created the task"""
+
+
+
+@dataclass(frozen=True, slots=True)
 class TaskHandle:
     """Controls a distributed task as a whole in SGA, used by task-level calls such as kill/bad request"""
     g_task: int
@@ -131,7 +226,7 @@ class TaskCreateArgs:
     task result which is stored in slices, this is just a status data for the task itself
     """
 
-    target_id: str | None
+    target_id: str
     """Target context ID, such as a FILE to process"""
 
     args: dict
@@ -330,6 +425,25 @@ class SGAMemory(AsyncDaemon):
         """TID - TaskInvariantDaemon: Ensures that all tasks in SGA are in a valid state, e.g. slices that are abandoned are failed, etc"""
         if not self.is_daemon_active: return
         ...
+
+
+
+    async def task_get_info(self, g_task: int) -> TaskInfo | None:
+        """
+        Returns read-only information about a task, or None if the task does not exist.
+        This is a lightweight call that does not return task arguments or status data.
+        """
+        if not self.is_daemon_active: return None
+        ...
+
+    async def task_get_detailed_info(self, g_task: int) -> TaskDetailedInfo | None:
+        """
+        Returns read-only detailed information about a task, or None if the task does not exist.
+        This is a lightweight call that does not return task arguments or status data.
+        """
+        if not self.is_daemon_active: return None
+        ...
+
 
 
     async def task_create(self, args: TaskCreateArgs) -> TaskHandle | None:
