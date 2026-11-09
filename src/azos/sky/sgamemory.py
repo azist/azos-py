@@ -21,11 +21,14 @@ Copyright (C) 2020 - 2026 Azist, MIT License
 """
 
 
+from abc import abstractmethod
 from asyncio import Event
 from dataclasses import dataclass
+from datetime import datetime
 from random import uniform
 from typing import override
 
+from azos.db.filters import Filter
 from azos.exceptions import Validol
 from azos.apm.log import LogStrand, LOG_CHANNEL_ANL
 from azos.chassis import AppChassis, AppComponent
@@ -35,10 +38,244 @@ import azos.sky.constraints as sz
 
 
 @dataclass(frozen=True, slots=True)
+class TaskInfo:
+    """Provides read-only information about tasks"""
+
+    gdid: int
+    """Unique task id assigned at creation"""
+
+    ctag: str
+    """UUID assigned at creation which can be used for log correlation"""
+
+    title: str
+    """Task title used for admin/UI"""
+
+    app: str
+    """Application id to execute"""
+
+    component: str
+    """Application component within application to execute"""
+
+    nice: int
+    """Task niceness similar to .NIX"""
+
+    start_utc: datetime
+    """Start UTC date: task can not start before this date"""
+
+    end_utc: datetime
+    """After this UTC date task would not run. If it has not started it will become"""
+
+    mode: int
+    """Failure modes"""
+
+    retry_limit: int
+    """How many times the failing slices will be tried to re-run before aborting the slice"""
+
+    slice_timeout_sec: int
+    """Max run time of any one slice execution, in seconds (1..86400), same for all slices of the task"""
+
+    g_antecedent: int | None
+    """Optional task which acts as a guard that prevents execution of this one until it is completed"""
+
+    antecedent_success: bool
+    """True then only antecedent success (200) allows this task to run, false then ANY antecedent terminal status (200 or any failure 4xx/5xx/6xx) allows this task to run"""
+
+    principal_id: str | None
+    """Optional security principal id on behalf of which the task executes"""
+
+    status: int
+    """Task execution status"""
+
+    status_msg: str | None
+    """Optional status message for admin/debug purposes"""
+
+    status_utc: datetime
+    """UTC date when the task status was last changed"""
+
+    target_id: str
+    """Target context ID, such as a FILE to process"""
+
+    args_snippet: str
+    """Argument snippet for display purposes"""
+
+
+@dataclass(frozen=True, slots=True)
+class TaskDetailedInfo(TaskInfo):
+    """Provides read-only task details information (e.g. args) """
+
+    status_host: str
+    """Host name of the node that last changed the task status"""
+
+    status_data: dict | None
+    """Status data, such as exception for terminal states"""
+
+    args: dict
+    """Task Arguments, you can pass result mailbox here if you want to return a result from the task otherwise the task has no result of its own"""
+
+    crt_app: str
+    """Application id that created the task"""
+
+    crt_cmp: str
+    """Application component id that created the task"""
+
+    crt_host: str
+    """Host name of the node that created the task"""
+
+    crt_utc: datetime
+    """UTC date when the task was created"""
+
+    crt_actor: str
+    """Optional actor id that created the task, such as a user id"""
+
+    crt_origin: int
+    """Cloud origin id that created the task"""
+
+
+
+@dataclass(frozen=True, slots=True)
 class TaskHandle:
     """Controls a distributed task as a whole in SGA, used by task-level calls such as kill/bad request"""
     g_task: int
-    trace_uuid: str
+    """Unique task id assigned at creation"""
+
+    ctag: str
+    """UUID assigned at creation which can be used for log correlation"""
+
+
+@dataclass(frozen=True, slots=True)
+class TaskCreateArgs:
+    """
+    Arguments to create task, upon creation the system assigns a unique g_task and ctag trace id to the task, which
+     are returned in `TaskHandle`
+    """
+
+    @dataclass(frozen=True, slots=True)
+    class SliceCreateArgs:
+        """
+        Arguments to create task slice used within `TaskCreateArgs.slices` list, upon creation the system assigns a
+        unique g_slice to the slice
+        """
+
+        args:  dict
+        """Task Slice arguments"""
+
+        def __post_init__(self):
+            Validol(self) \
+                .test('Args must be a dict within entry count limit', lambda v: isinstance(v.target.args, dict) and len(v.target.args) <= sz.TASK_ARGS_MAX_ENTRY_COUNT) \
+                .throw()
+
+
+
+    title: str
+    """Task title used for admin/UI"""
+
+    app: str
+    """Application id to execute"""
+
+    component: str
+    """Application component within application to execute"""
+
+    nice: int
+    """Task niceness similar to .NIX"""
+
+    start_utc: datetime
+    """Start UTC date: task can not start before this date"""
+
+    end_utc: datetime
+    """After this UTC date task would not run. If it has not started it will become stale"""
+
+    mode: int
+    """
+    0 = autofail: any slice failure will auto fail task into 500 status code - which is STOPPED/Permanent Failure
+    100 = manual: task will not auto-fail on slice failure, it will stay in running state until admin manually stops it or it succeeds
+    """
+
+    retry_limit: int
+    """
+    How many times the failing slices will be tried to re-run before aborting the slice
+    If 0 then no automatic retries are attempted, if 1 then one retry is attempted, etc.
+    """
+
+    slice_timeout_sec: int
+    """
+    Max run time of any one slice execution, in seconds (1..86400), same for all slices of the task.
+    A slice that stays in status 100 longer than this since start_utc is considered abandoned by a dead worker
+    and is failed/retried by the system. Slices have no heartbeat so this must be the max legitimate slice runtime
+    """
+
+    g_antecedent: int | None
+    """
+    Optional task which acts as a guard that prevents execution of this one until it is completed (any terminal status).
+    This task will start execution when SD/ED allows AND the antecedent task is completed in an acceptable way (see antecedent_success).
+    If antecedent task is deleted then this task will not execute and becomes stale (600)
+    """
+
+    antecedent_success: bool
+    """
+    True then only antecedent success (200) allows this task to run,
+    false then ANY antecedent terminal status (200 or any failure 4xx/5xx/6xx) allows this task to run
+    """
+
+    principal_id: str | None
+    """Optional security principal id on behalf of which the task executes"""
+
+    status_msg: str | None
+    """Optional status message for admin/debug purposes"""
+
+    status_data: dict | None
+    """
+    Status data, such as exception for terminal states, do not confuse with
+    task result which is stored in slices, this is just a status data for the task itself
+    """
+
+    target_id: str
+    """Target context ID, such as a FILE to process"""
+
+    args: dict
+    """
+    Task Arguments, you can pass result mailbox here if you want to return a result from the task
+    otherwise the task has no result of its own
+    """
+
+    create_component: str
+    """Component id that created the task (crt_cmp)"""
+
+
+    slices: list[SliceCreateArgs]
+
+    def __post_init__(self):
+        Validol(self) \
+          .is_str('title', True, 1, sz.TASK_TITLE_MAX_LEN) \
+          .is_str('app', True, 1, sz.APP_NAME_MAX_LEN) \
+          .is_str('component', True, 1, sz.APP_COMPONENT_MAX_LEN) \
+          .is_int('nice', True) \
+          .is_float('start_utc', True, 0) \
+          .is_float('end_utc', True, 0) \
+          .test('End date must greater than start date', lambda v: v.target.end_utc > v.target.start_utc) \
+          .test('Mode must be 0 (autofail) or 100 (manual)', lambda v: v.target.mode in (0, 100)) \
+          .is_int('retry_limit', True, 0) \
+          .is_int('slice_timeout_sec', True, 1, sz.TASK_SLICE_TIMEOUT_MAX_SEC) \
+          .is_int('g_antecedent', False, 1) \
+          .is_bool('antecedent_success', True) \
+          .is_str('principal_id', False, 1, sz.ENTITY_ID_MAX_LEN) \
+          .is_str('status_msg', False, 1, sz.TASK_STATUS_MSG_MAX_LEN) \
+          .test(f'Status data must be a dict within entry count limit of {sz.TASK_ARGS_MAX_ENTRY_COUNT} or null',
+                lambda v: v.target.status_data is None or
+                         (isinstance(v.target.status_data, dict) and
+                         len(v.target.status_data) <= sz.TASK_ARGS_MAX_ENTRY_COUNT)) \
+          .is_str('target_id', False, 1, sz.ENTITY_ID_MAX_LEN) \
+          .test(f'Args must be a dict within entry count limit of {sz.TASK_ARGS_MAX_ENTRY_COUNT}',
+                lambda v: isinstance(v.target.args, dict) and
+                           len(v.target.args) <= sz.TASK_ARGS_MAX_ENTRY_COUNT) \
+          .is_str('create_component', True, 1, sz.APP_COMPONENT_MAX_LEN) \
+          .test(f'Slices must be a list of SliceCreateArgs up to {sz.TASK_MAX_SLICE_COUNT} entries',
+                lambda v: isinstance(v.target.slices, list) and
+                           len(v.target.slices) <= sz.TASK_MAX_SLICE_COUNT and
+                           all(isinstance(s, TaskCreateArgs.SliceCreateArgs) for s in v.target.slices)) \
+          .throw()
+
+
+
 
 
 @dataclass(frozen=True, slots=True)
@@ -156,7 +393,6 @@ class SGAMemory(AsyncDaemon):
     def interval_s(self) -> float:
         return uniform(10, 10 + self._jitter_s)
 
-
     @override
     async def do_work(self, stop_event: Event) -> None:
         if stop_event.is_set(): return
@@ -174,24 +410,44 @@ class SGAMemory(AsyncDaemon):
           await self.ensure_task_invariants()
 
 
+    #region ### System Behaviors ###
+    @abstractmethod
     async def drop_expired_mutexes(self):
         """Drops all mutexes that reached past EOL and never released"""
-        if not self.is_daemon_active: return
-        ...
 
-
+    @abstractmethod
     async def drop_expired_slots(self):
         """Drops all slots that reached past EOL and never deleted"""
-        if not self.is_daemon_active: return
-        ...
 
-
+    @abstractmethod
     async def ensure_task_invariants(self):
         """TID - TaskInvariantDaemon: Ensures that all tasks in SGA are in a valid state, e.g. slices that are abandoned are failed, etc"""
-        if not self.is_daemon_active: return
-        ...
+    #endregion
 
 
+    #region #### TASKS ####
+    @abstractmethod
+    async def task_get_list(self, filter: Filter) -> list[TaskInfo]:
+        """
+        Returns a list of tasks in SGA, optionally filtered by filter expression which is processed using ast.
+        This is a lightweight call that does not return task arguments or status data.
+        """
+
+    @abstractmethod
+    async def task_get_info(self, g_task: int, details: bool = False) -> TaskInfo | TaskDetailedInfo | None:
+        """
+        Returns read-only information about a task, or None if the task does not exist.
+        This is a lightweight call that does not return task arguments or status data.
+        """
+
+    @abstractmethod
+    async def task_create(self, args: TaskCreateArgs) -> TaskHandle | None:
+        """
+        Creates a new task in SGA. Returns a handle to the task or None if the system is shutting down.
+        The task is created in PENDING state (0) and is not yet eligible for execution until its start date arrives.
+        """
+
+    @abstractmethod
     async def task_slice_acquire(self, app: str, component: str) -> TaskSliceHandle | None:
         """
         Retrieves a slice of pending work for tasks scheduled to run by specific app and component.
@@ -205,10 +461,8 @@ class SGAMemory(AsyncDaemon):
         Acquire is non-blocking (`FOR UPDATE SKIP LOCKED`). It sets slice status 100 and increments `run_count`.
         See memory.tasks.prd.md section 7.1.
         """
-        if not self.is_daemon_active: return None
-        ...
 
-
+    @abstractmethod
     async def task_slice_release_failed(self, handle: TaskSliceHandle, error: Exception) -> None:
         """
         Releases the slice back to SGA and marks it as failed. The outcome is decided atomically: if retries remain
@@ -218,20 +472,16 @@ class SGAMemory(AsyncDaemon):
         A release for an attempt that is no longer current (the slice was reaped as abandoned and re-acquired) is ignored.
         See memory.tasks.prd.md sections 5.1 and 7.3.
         """
-        if not self.is_daemon_active: return
-        ...
 
-
-    async def task_slice_release_ok(self, handle: TaskSliceHandle, result: dict | None) -> None:
+    @abstractmethod
+    async def task_slice_release_success(self, handle: TaskSliceHandle, result: dict | None) -> None:
         """
         Releases the slice back to SGA and marks it as completed successfully, so that it can stop being considered
         for future work. The result is set on a slice level if any.
         A release for an attempt that is no longer current is ignored (memory.tasks.prd.md section 7.3).
         """
-        if not self.is_daemon_active: return
-        ...
 
-
+    @abstractmethod
     async def task_set_bad_request(self, handle: TaskHandle, message: str, data: dict | None = None) -> bool:
         """
         Terminates the whole task as invalid (status 400): its arguments are not valid in principle, e.g. unknown
@@ -241,11 +491,8 @@ class SGAMemory(AsyncDaemon):
         Only a task in a non-terminal status (0/100/120) is changed; slices are not touched.
         Returns True if the task was changed, False if it does not exist or is already terminal.
         """
-        if not self.is_daemon_active: return False
-        ...
-        return False
 
-
+    @abstractmethod
     async def task_kill(self, handle: TaskHandle, message: str, data: dict | None = None) -> bool:
         """
         Terminates the whole task by KILL signal (status 550). Only a task in a non-terminal status (0/100/120) is changed;
@@ -254,11 +501,19 @@ class SGAMemory(AsyncDaemon):
         optional `data` is stored in the task `status_data`.
         Returns True if the task was changed, False if it does not exist or is already terminal.
         """
-        if not self.is_daemon_active: return False
-        ...
-        return False
+    #endregion
 
 
+    #region ### Mutexes ###
+
+    @abstractmethod
+    async def mutex_list(self, filter: Filter) -> list[MutextInfo]
+       """
+        Returns a list of mutexes in SGA, optionally filtered by filter expression which is processed using ast.
+       """
+
+
+    @abstractmethod
     async def mutex_set(self, args: MutexSetArgs) -> MutexHandle | None:
         """
         Sets the mutex or throws if the mutex is already set by another process.
@@ -266,32 +521,32 @@ class SGAMemory(AsyncDaemon):
         early if you are done with it.
         None is returned if the system can not set mutexes now, e.g. shutting down
         """
-        if not self.is_daemon_active: return None
-        ...
 
-
+    @abstractmethod
     async def mutex_release(self, handle: MutexHandle) -> bool | None:
         """
         Releases the mutex. True if it was released, False if not found/already released.
         """
-        if not self.is_daemon_active: return None
-        ...
-        return True
+    #endregion
 
 
+    #region ### RAM Slots ###
+
+    async def ram_slot_list(self, filter: Filter) -> list[RamSlotInfo]
+       """
+        Returns a list of ram slots in SGA, optionally filtered by filter expression which is processed using ast.
+       """
+
+    @abstractmethod
     async def ram_slot_set(self, args: RamSlotSetArgs) -> RamSlotData | None:
         """Sets the RAM slot record or throws if bad data. None if system is shutting down"""
-        if not self.is_daemon_active: return None
-        ...
 
-
+    @abstractmethod
     async def ram_slot_get(self, args: RamSlotGetArgs) -> RamSlotData | None:
-        if not self.is_daemon_active: return None
-        ...
+        """Returns the RAM slot record or None if not found"""
 
-
+    @abstractmethod
     async def ram_slot_delete(self, args: RamSlotGetArgs) -> bool:
         """Deletes the RAM slot record. Returns True if deleted, False if not found"""
-        if not self.is_daemon_active: return False
-        ...
-        return True
+    #endregion
+

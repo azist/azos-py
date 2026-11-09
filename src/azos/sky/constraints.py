@@ -24,4 +24,12 @@ SLOT_VALUE_MAX_ITEMS: int = 1024
 TASK_TITLE_MAX_LEN: int = 64
 TASK_STATUS_MSG_MAX_LEN: int = 64
 
-MAX_ARGS_BYTE_LEN: int = 256 * 1024  # 256 KB
+TASK_SLICE_TIMEOUT_MAX_SEC: int = 24 * 60 * 60  # 1 day
+
+TASK_ARGS_MAX_ENTRY_COUNT: int = 1024  # Max number of top-level entries in a dict-valued field
+
+TASK_MAX_SLICE_COUNT: int = 4_000  # Max number of slices in a task
+
+TASK_MODE_AUTOFAIL = 0   # any slice failure will auto fail task into 500 status code - which is STOPPED/Permanent Failure
+TASK_MODE_MANUAL   = 100 # task will not auto-fail on slice failure, it will stay in running state until admin manually stops
+                         # it or it succeeds

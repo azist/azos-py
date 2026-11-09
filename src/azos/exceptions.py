@@ -20,11 +20,12 @@ class AzosError(Exception):
         message -- explanation of the error
     """
 
-    def __init__(self, message: str ="Azos unspecified error", topic: str = "azos", frm: str = "", src: int = 0):
+    def __init__(self, message: str ="Azos unspecified error", topic: str = "azos", frm: str = "", src: int = 0, status_code: int = 500):
         self.topic = topic
         self.frm = frm
         self.src = src
         self.message = message
+        self.status_code = status_code
         super().__init__(self.message)
 
 
@@ -36,9 +37,9 @@ class ValidolError(AzosError):
         schema -- validation schema name (stored in AzosError.frm)
     """
 
-    def __init__(self, schema: str, field: str, message: str, src: int = 0):
+    def __init__(self, schema: str, field: str, message: str, src: int = 0, status_code: int = -1):
         self.field = field
-        super().__init__(message=message, topic="validol", frm=schema, src=src)
+        super().__init__(message=message, topic="validol", frm=schema, src=src, status_code=status_code if status_code > 0 else 422)
 
     @property
     def schema(self) -> str:
@@ -79,13 +80,14 @@ class ValidolBatchError(ExceptionGroup[ValidolError], AzosError):
         instance = super().__new__(cls, msg, errors)
         return instance
 
-    def __init__(self, schema: str, errors: list[ValidolError], src: int = 0):
+    def __init__(self, schema: str, errors: list[ValidolError], src: int = 0, status_code: int = -1):
         # ExceptionGroup is already initialized in __new__, we just set Azos fields
         self.topic = "validol"
         self.frm = schema
         self.src = src
         self._message = f"Validation of `{schema}` failed with {len(errors)} error(s)"
         self.field = "*"
+        self.status_code = status_code if status_code > 0 else 422
 
     @property
     def schema(self) -> str:

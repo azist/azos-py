@@ -8,6 +8,7 @@
     "cSpell.words": [
         "aencode",
         "asof",
+        "AUTOFAIL",
         "Azist",
         "azos",
         "bootload",
@@ -15,6 +16,7 @@
         "contoso",
         "ctree",
         "CTYPE",
+        "docstrings",
         "dval",
         "eleted",
         "evar",
@@ -45,7 +47,8 @@
         "Sysdat",
         "sysdba",
         "taskslice",
-        "Validol"
+        "Validol",
+        "Xlat"
     ],
     "workbench.tree.indent": 28,
     "files.eol": "\n",
