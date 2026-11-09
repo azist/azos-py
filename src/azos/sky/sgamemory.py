@@ -28,6 +28,7 @@ from datetime import datetime
 from random import uniform
 from typing import override
 
+from azos.db.filters import Filter
 from azos.exceptions import Validol
 from azos.apm.log import LogStrand, LOG_CHANNEL_ANL
 from azos.chassis import AppChassis, AppComponent
@@ -426,7 +427,7 @@ class SGAMemory(AsyncDaemon):
 
     #region #### TASKS ####
     @abstractmethod
-    async def task_get_list(self, filter: str) -> list[TaskInfo]:
+    async def task_get_list(self, filter: Filter) -> list[TaskInfo]:
         """
         Returns a list of tasks in SGA, optionally filtered by filter expression which is processed using ast.
         This is a lightweight call that does not return task arguments or status data.
@@ -504,6 +505,14 @@ class SGAMemory(AsyncDaemon):
 
 
     #region ### Mutexes ###
+
+    @abstractmethod
+    async def mutex_list(self, filter: Filter) -> list[MutextInfo]
+       """
+        Returns a list of mutexes in SGA, optionally filtered by filter expression which is processed using ast.
+       """
+
+
     @abstractmethod
     async def mutex_set(self, args: MutexSetArgs) -> MutexHandle | None:
         """
@@ -522,6 +531,12 @@ class SGAMemory(AsyncDaemon):
 
 
     #region ### RAM Slots ###
+
+    async def ram_slot_list(self, filter: Filter) -> list[RamSlotInfo]
+       """
+        Returns a list of ram slots in SGA, optionally filtered by filter expression which is processed using ast.
+       """
+
     @abstractmethod
     async def ram_slot_set(self, args: RamSlotSetArgs) -> RamSlotData | None:
         """Sets the RAM slot record or throws if bad data. None if system is shutting down"""
