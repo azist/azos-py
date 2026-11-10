@@ -122,14 +122,14 @@ STREET_SUFFIXES: tuple[str, ...] = (
 POPULAR_CITY_NAMES: tuple[str, ...] = (
     "New York", "Washington", "Philadelphia", "Cleveland", "Hudson", "Canoga Park", "Los Angeles", "Chester",
     "Bristol", "Moscow", "Odessa", "Kiev", "Marion", "Boise", "Franklin", "Greenville", "Mayfield", "Clinton",
-    "Sodom", "Salem", "Fairview", "Madison", "Arnold", "Stow", "Dallas", "Ashland", "London", "Paris", "Oxford",
+    "Sacci", "Salem", "Fairview", "Madison", "Arnold", "Stow", "Dallas", "Ashland", "London", "Paris", "Oxford",
     "Oxnard", "Arlington", "Jackson", "Burlington", "Toronto", "Manchester", "Chita", "Milton", "Centerville",
     "Clayton", "Dayton", "Troy", "Lexington", "Milford", "Dover", "Newport", "Samara", "Bugaz", "Haifa", "Hopewell",
     "Phoenix", "San Diego", "Austin", "Indianapolis", "Athens", "Angola", "San Antonio", "Nordonia", "Macedinia",
     "North Royalton", "Seattle", "Denver", "Boston", "Nashville", "Brighton", "Albuquerque", "Omaha", "Oakland",
     "Raleigh", "Belgorod", "Belgrade", "Sofia", "Sevastopol", "Khersones", "Miami", "Atlanta", "Baltimore", "Tucson",
-    "Newark", "Henderson", "Lincoln", "Greensboro", "Toledo", "Winston-Salem", "Chesapeake", "Richmond",
-    "Chattanooga", "Choochoo",
+    "Newark", "Henderson", "Lincoln", "Greensboro", "Toledo", "Winston-Salem", "Chesapeake", "Richmond", "Tampa",
+    "Chattanooga", "Choochoo", "Orlando"
 )
 
 
@@ -139,7 +139,7 @@ LAST_NAME_SUFFIXES: tuple[str, ...] = (
     "brook", "bridge", "boim", "boym", "cle", "cli", "chevy", "ckin", "ckino", "ckina", "cori", "ckori", "cory",
     "ckory", "chuk", "chook", "choo", "chu", "chuh", "chi", "chev", "cheva", "dze", "dom", "dara", "dori", "dero",
     "der", "dorah", "elsk", "er", "et", "eta", "ema", "etski", "etsky", "ech", "echt", "enser", "fi", "fy", "fina",
-    "fyna", "fe", "field", "feld", "gomery", "grey", "gray", "grim", "grihm", "gay", "gai", "gi", "gy", "go", "ga",
+    "fyna", "fe", "field", "feld", "gomery", "grey", "gray", "grim", "grihm", "hay", "hai", "gi", "gy", "go", "ga",
     "ge", "hi", "hy", "ini", "iny", "in", "ina", "im", "itz", "its", "itsik", "itsyk", "jer", "jo", "joo", "jen",
     "kin", "kino", "kina", "komo", "kori", "kari", "khmali", "khmer", "lar", "ler", "logo", "led", "lida", "lidah",
     "lume", "luma", "ledge", "lidge", "man", "mas", "mana", "mark", "menko", "menka", "medov", "medova", "metov",
