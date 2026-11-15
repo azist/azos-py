@@ -118,6 +118,8 @@ class PgSGAMemory(SGAMemory):
             return []
 
         where_sql, params = "", []
+        # Only build a WHERE clause when the caller supplied a filter expression; the translator turns the
+        # AST string into parameterized SQL (restricted to allowed fields) and returns the bind params
         if filter.where:
             where_clause, params = self._mutex_list_xlat.from_string(filter.where)
             where_sql = f" WHERE {where_clause}"
