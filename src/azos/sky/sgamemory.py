@@ -294,6 +294,48 @@ class TaskSliceHandle:
     run_count: int  # Execution attempt number (1 = first) assigned at acquire; used to reject stale releases
 
 
+@dataclass(frozen=True, slots=True)
+class MutexInfo:
+    """Provides read-only information about mutexes"""
+
+    gdid: int
+    """Mutex gdid"""
+
+    owner_app: str
+    """App id that owns the mutex"""
+
+    owner_cmp: str
+    """Component that owns the mutex"""
+
+    set_host: str
+    """Host that set the mutex"""
+
+    set_utc: datetime
+    """When was the mutex set"""
+
+    set_actor: str
+    """Who set the mutex"""
+
+    set_origin: int
+    """Cloud origin of mutex set"""
+
+    end_utc: datetime
+    """Expiration point"""
+
+    description: str
+    """Description"""
+
+    ns: str
+    """Mutex namespace"""
+
+    key: str
+    """Mutex key"""
+
+    value: str
+    """Mutex value snippet"""
+
+
+
 
 @dataclass(frozen=True, slots=True)
 class MutexSetArgs:
@@ -322,6 +364,48 @@ class MutexSetArgs:
 class MutexHandle:
     """Represents a set mutex record in SGA akin to a distributed memory mutex pointer"""
     g_mutex: int
+
+
+@dataclass(frozen=True, slots=True)
+class RamSlotInfo:
+    """Provides read-only information about RAM slots"""
+
+    gdid: int
+    """Slot gdid"""
+
+    set_app: str
+    """App id that set the slot"""
+
+    set_cmp: str
+    """Component that set the slot"""
+
+    set_host: str
+    """Host that set the slot"""
+
+    set_utc: datetime
+    """When was the slot set"""
+
+    set_actor: str
+    """Who set the slot"""
+
+    set_origin: int
+    """Cloud origin of slot set"""
+
+    end_utc: datetime | None
+    """Optional slot expiration point"""
+
+    description: str
+    """Description"""
+
+    ns: str
+    """Slot namespace"""
+
+    key: str
+    """Slot key"""
+
+    value_size: int
+    """Slot value size in bytes"""
+
 
 
 @dataclass(frozen=True, slots=True)
@@ -507,7 +591,7 @@ class SGAMemory(AsyncDaemon):
     #region ### Mutexes ###
 
     @abstractmethod
-    async def mutex_list(self, filter: Filter) -> list[MutextInfo]
+    async def mutex_list(self, filter: Filter) -> list[MutexInfo]:
        """
         Returns a list of mutexes in SGA, optionally filtered by filter expression which is processed using ast.
        """
@@ -532,6 +616,7 @@ class SGAMemory(AsyncDaemon):
 
     #region ### RAM Slots ###
 
+    @abstractmethod
     async def ram_slot_list(self, filter: Filter) -> list[RamSlotInfo]
        """
         Returns a list of ram slots in SGA, optionally filtered by filter expression which is processed using ast.
