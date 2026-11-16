@@ -13,12 +13,13 @@ import asyncpg
 from azos.ambient import Ambient
 from azos.chassis import AppChassis, AppComponent
 from azos.daemons import IAsyncDaemonControl
-from azos.db.pgconnector import PgConnector, bind
+from azos.db.filters import Filter
+from azos.db.pgconnector import PgConnector, PgASTXlat, bind
 from azos.descriptor import Descriptor
 from azos.exceptions import AzosError
 from azos.gdid8 import GDIDGenerator
 import azos.sky.constraints as sz
-from azos.sky.sgamemory import MutexHandle, MutexSetArgs, RamSlotData, RamSlotGetArgs, RamSlotSetArgs, SGAMemory
+from azos.sky.sgamemory import MutexHandle, MutexInfo, MutexSetArgs, RamSlotData, RamSlotGetArgs, RamSlotInfo, RamSlotSetArgs, SGAMemory
 
 
 # Name of the PgConnector pool used for SGA memory operations
@@ -29,6 +30,16 @@ SQL_MUTEX_SET = '''INSERT INTO tbl_mutex
 ("gdid", "owner_app", "owner_cmp", "set_host", "set_utc", "set_actor","set_origin", "end_utc", "description", "ns", "key", "value")
 VALUES
 ($gdid, $owner_app, $owner_cmp, $set_host, $set_utc, $set_actor, $set_origin, $end_utc, $description, $ns, $key, $value)'''
+
+# Selects mutex records as `MutexInfo` fields; the caller appends WHERE/ORDER/LIMIT clauses.
+SQL_MUTEX_LIST = '''SELECT "gdid", "owner_app", "owner_cmp", "set_host", "set_utc", "set_actor", "set_origin",
+"end_utc", "description", "ns", "key", "value" FROM tbl_mutex'''
+
+# Columns which `SQL_MUTEX_LIST` filter expressions are allowed to reference
+MUTEX_LIST_ALLOWED_FIELDS = ["gdid", "owner_app", "owner_cmp", "ns", "key"]
+
+# Default `ORDER BY` clause of mutex list used when `Filter.order` is absent
+MUTEX_LIST_DEFAULT_ORDER = '"gdid"'
 
 # Deletes a mutex record by its GDID. Returns the deleted GDID or nothing if not found.
 SQL_MUTEX_RELEASE = 'DELETE FROM tbl_mutex WHERE "gdid" = $gdid RETURNING "gdid"'
@@ -60,6 +71,17 @@ SQL_SLOT_GET = '''SELECT "ns", "key", "value", "set_cmp", "description", "end_ut
 FROM tbl_slot
 WHERE "ns" = $ns AND "key" = $key AND ("end_utc" IS NULL OR "end_utc" >= $now)'''
 
+# Selects slot records as `RamSlotInfo` fields; the caller appends WHERE/ORDER/LIMIT clauses.
+# The value itself is not returned, only its serialized size in bytes (`value_size`).
+SQL_SLOT_LIST = '''SELECT "gdid", "set_app", "set_cmp", "set_host", "set_utc", "set_actor", "set_origin",
+"end_utc", "description", "ns", "key", octet_length("value"::text) AS "value_size" FROM tbl_slot'''
+
+# Columns which `SQL_SLOT_LIST` filter expressions are allowed to reference
+SLOT_LIST_ALLOWED_FIELDS = ["gdid", "set_app", "set_cmp", "ns", "key"]
+
+# Default `ORDER BY` clause of slot list used when `Filter.order` is absent
+SLOT_LIST_DEFAULT_ORDER = '"gdid"'
+
 # Deletes a slot by [ns, key]. Returns the deleted GDID or nothing if not found.
 SQL_SLOT_DELETE = 'DELETE FROM tbl_slot WHERE "ns" = $ns AND "key" = $key RETURNING "gdid"'
 
@@ -78,6 +100,8 @@ class PgSGAMemory(SGAMemory):
         super().__init__(chassis, director, config)
         self._pgc: PgConnector | None = None
         self._gdid: GDIDGenerator | None = None
+        self._mutex_list_xlat = PgASTXlat(MUTEX_LIST_ALLOWED_FIELDS)
+        self._slot_list_xlat = PgASTXlat(SLOT_LIST_ALLOWED_FIELDS)
 
     @override
     async def __aenter__(self) -> IAsyncDaemonControl:
@@ -91,6 +115,36 @@ class PgSGAMemory(SGAMemory):
         await super().__aexit__(exc_type, exc_val, exc_tb)
         self._pgc = None
         self._gdid = None
+
+    #region *** MUTEX ***
+    @override
+    async def mutex_list(self, filter: Filter) -> list[MutexInfo]:
+        """
+        Returns a page of mutexes optionally filtered by `filter.where` (AST expression limited to
+        `gdid`, `owner_app`, `owner_cmp`, `ns`, `key` columns). Results are ordered by `filter.order`
+        (`field1 asc, field2 desc`) or by `gdid` if not specified. Raises `AzosError` with 422 status
+        if `filter.order` references fields not in the allowed list.
+        Returns an empty list if the system can not read mutexes now.
+        """
+        if not self.is_daemon_active or self._pgc is None:
+            return []
+
+        where_sql, params = "", []
+        # Only build a WHERE clause when the caller supplied a filter expression; the translator turns the
+        # AST string into parameterized SQL (restricted to allowed fields) and returns the bind params
+        if filter.where:
+            where_clause, params = self._mutex_list_xlat.from_string(filter.where)
+            where_sql = f" WHERE {where_clause}"
+
+        order_sql = self._mutex_list_xlat.from_order_string(filter.order) or MUTEX_LIST_DEFAULT_ORDER
+
+        sql = (f"{SQL_MUTEX_LIST}{where_sql} ORDER BY {order_sql}"
+               f" LIMIT ${len(params) + 1} OFFSET ${len(params) + 2}")
+
+        async with self._pgc.get_connection(SGA_MEMORY_POOL_NAME) as conn:
+            rows = await conn.fetch(sql, *params, filter.paging_limit, filter.paging_offset)
+
+        return [MutexInfo(**row) for row in rows]
 
 
     @override
@@ -165,6 +219,41 @@ class PgSGAMemory(SGAMemory):
 
         if count:
             self._log.info(f"Dropped {count} expired mutexes in {elapsed_ms:.2f} ms")
+
+    #endregion
+
+    #region *** SLOTS ***
+
+    @override
+    async def ram_slot_list(self, filter: Filter) -> list[RamSlotInfo]:
+        """
+        Returns a page of RAM slots optionally filtered by `filter.where` (AST expression limited to
+        `gdid`, `set_app`, `set_cmp`, `ns`, `key` columns). Results are ordered by `filter.order`
+        (`field1 asc, field2 desc`) or by `gdid` if not specified. Raises `AzosError` with 422 status
+        if `filter.order` references fields not in the allowed list.
+        Slot values are not returned, only their size in bytes (`value_size`).
+        Returns an empty list if the system can not read slots now.
+        """
+        if not self.is_daemon_active or self._pgc is None:
+            return []
+
+        where_sql, params = "", []
+        # Only build a WHERE clause when the caller supplied a filter expression; the translator turns the
+        # AST string into parameterized SQL (restricted to allowed fields) and returns the bind params
+        if filter.where:
+            where_clause, params = self._slot_list_xlat.from_string(filter.where)
+            where_sql = f" WHERE {where_clause}"
+
+        order_sql = self._slot_list_xlat.from_order_string(filter.order) or SLOT_LIST_DEFAULT_ORDER
+
+        sql = (f"{SQL_SLOT_LIST}{where_sql} ORDER BY {order_sql}"
+               f" LIMIT ${len(params) + 1} OFFSET ${len(params) + 2}")
+
+        async with self._pgc.get_connection(SGA_MEMORY_POOL_NAME) as conn:
+            rows = await conn.fetch(sql, *params, filter.paging_limit, filter.paging_offset)
+
+        return [RamSlotInfo(**row) for row in rows]
+
 
     @override
     async def ram_slot_set(self, args: RamSlotSetArgs) -> RamSlotData | None:
@@ -265,11 +354,9 @@ class PgSGAMemory(SGAMemory):
         if count:
             self._log.info(f"Dropped {count} expired slots in {elapsed_ms:.2f} ms")
 
+    #endregion
 
-    #################################################################################
-    # Tasks
-    #################################################################################
-
+    #region *** TASKS ***
     @override
     async def ensure_task_invariants(self):
         if not self.is_daemon_active: return
@@ -287,6 +374,8 @@ class PgSGAMemory(SGAMemory):
     # task_slice_release_success(handle: TaskSliceHandle, result: dict | None)
     # task_set_bad_request(handle: TaskHandle, message: str, data: dict | None) -> bool
     # task_kill(handle: TaskHandle, message: str, data: dict | None) -> bool
+
+    #endregion
 
     # Dima todo:
     # 1. Check all SGAMemoryStructure for alignment of fields with DB, e.g. is "ctag" returned with handle

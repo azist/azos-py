@@ -427,12 +427,43 @@ class PgASTXlat(ast.NodeVisitor):
         sql_string = self.visit(expression)
         return sql_string, self.params
 
+    def from_order_string(self, order: str | None) -> str | None:
+        """
+        Translates an order by expression `field1 asc, field2 desc` into a SQL ORDER BY clause body
+        (without the `ORDER BY` keyword), e.g. `"field1" ASC, "field2" DESC`. Direction is optional and
+        defaults to `ASC`. Returns `None` if `order` is `None` or blank. Columns are checked against `limits`
+        (if any). Raises `AzosError` with 422 status for invalid expressions or disallowed columns.
+        """
+        if order is None or not order.strip():
+            return None
+
+        items = []
+        for part in order.split(","):
+            tokens = part.split()
+            if not 1 <= len(tokens) <= 2:
+                raise self.__fail(f"Invalid order by item: `{part.strip()}`")
+
+            column = tokens[0]
+            # Column is always quoted, and Python identifiers cannot contain quotes
+            if not column.isidentifier():
+                raise self.__fail(f"Invalid order by column: `{column}`")
+            if self.limits is not None and column not in self.limits:
+                raise self.__fail(f"Column `{column}` is not allowed in order by")
+
+            direction = tokens[1].upper() if len(tokens) == 2 else "ASC"
+            if direction not in ("ASC", "DESC"):
+                raise self.__fail(f"Invalid order by direction: `{tokens[1]}`")
+            items.append(f'"{column}" {direction}')
+
+        return ", ".join(items)
+
     def __fail(self, msg: str, node: ast.AST | None = None) -> AzosError:
         return AzosError(
             message=msg,
             topic="pgconnector",
             frm=f"PgASTXlat(`{type(node).__name__ if node is not None else ''}`)",
-            src=0
+            src=400,
+            status_code=422
         )
 
     @override

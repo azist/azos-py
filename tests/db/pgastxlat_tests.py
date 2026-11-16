@@ -889,3 +889,37 @@ def test_unicode_identifier_column_01():
 def test_non_string_numeric_values_are_params_01():
     sql, args = xlat().from_string("Age == 1")
     assert "1" not in sql.replace("$1", "")
+
+
+# ----------------------------------------------------------------------------------------------
+# from_order_string
+# ----------------------------------------------------------------------------------------------
+
+@pytest.mark.parametrize("order", [None, "", "   "])
+def test_from_order_string_empty_returns_none_01(order):
+    assert xlat().from_order_string(order) is None
+
+
+def test_from_order_string_01():
+    assert PgASTXlat(["Age", "LastName"]).from_order_string("LastName desc, Age") == '"LastName" DESC, "Age" ASC'
+
+
+def test_from_order_string_direction_case_01():
+    assert PgASTXlat(["Age"]).from_order_string("Age  Asc") == '"Age" ASC'
+
+
+def test_from_order_string_no_limits_allows_any_identifier_01():
+    assert PgASTXlat().from_order_string("Anything desc") == '"Anything" DESC'
+
+
+@pytest.mark.parametrize("order", ["Password", "Age, Password desc", "Age sideways", "Age desc extra", "Age,", "Age; DROP", '"Age"'])
+def test_from_order_string_invalid_01(order):
+    with pytest.raises(AzosError) as exc_info:
+        PgASTXlat(["Age"]).from_order_string(order)
+    assert exc_info.value.status_code == 422
+
+
+def test_from_order_string_invalid_identifier_unlimited_01():
+    with pytest.raises(AzosError) as exc_info:
+        PgASTXlat().from_order_string('a"b desc')
+    assert exc_info.value.status_code == 422
