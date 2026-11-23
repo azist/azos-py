@@ -31,8 +31,11 @@ _NAMED_PARAM = re.compile(r"\$([A-Za-z_][A-Za-z0-9_]*)")
 
 
 @lru_cache(maxsize=512)
-def __compile_named(sql: str) -> tuple[str, tuple[str, ...]]:
+def _original_compile_named(sql: str) -> tuple[str, tuple[str, ...]]:
     """
+    ORIGINAL naive implementation, kept for reference/fallback. It is NOT used by `bind()` because it
+    treats `$name` inside string literals and comments as parameters.
+
     Converts `$name` placeholders into asyncpg positional `$N` form. Returns the translated SQL
     and the ordered parameter names. Same name used many times maps to the same `$N`.
     The translated text is stable per source SQL so asyncpg per-connection prepared statement cache is reused.
@@ -46,6 +49,91 @@ def __compile_named(sql: str) -> tuple[str, tuple[str, ...]]:
         return f"${names.index(name) + 1}"
 
     return _NAMED_PARAM.sub(sub, sql), tuple(names)
+
+
+# Tokenizer for PostgreSQL lexical structure. Skipped constructs are matched first (leftmost wins), so
+# a `$name` inside of them is never seen by the `name` alternative. Bodies use the unrolled-loop form
+# `[^x]*(?:xx[^x]*)*` to avoid catastrophic backtracking on unterminated input.
+_SQL_TOKEN = re.compile(
+    r"""
+    (?P<skip>
+        --[^\n]*                                              # line comment (to EOL or EOF)
+      | (?<![\w$])[eE]'[^'\\]*(?:(?:\\.|'')[^'\\]*)*'         # E'..' escape string: backslash-x and ''
+      | '[^']*(?:''[^']*)*'                                   # standard string (also B'', X'', U&''): only ''
+      | "[^"]*(?:""[^"]*)*"                                   # quoted identifier: only ""
+      | (?<![\w$])(?P<dq>\$(?:[A-Za-z_]\w*)?\$).*?(?P=dq)     # dollar-quoted $tag$..$tag$ (tag optional)
+    )
+  | (?P<bcomment>/\*)                                         # block comment start, nesting handled by the loop
+  | (?P<bad>(?<![\w$])[eE]'|'|"|(?<![\w$])\$(?:[A-Za-z_]\w*)?\$)  # opener of an unterminated construct
+  | (?<![\w$])\$(?P<name>[A-Za-z_]\w*)                        # the actual named parameter
+    """,
+    re.VERBOSE | re.DOTALL,
+)
+
+_BLOCK_COMMENT_EDGE = re.compile(r"/\*|\*/")
+
+
+def _unterminated(sql: str, pos: int, what: str) -> AzosError:
+    snippet = sql[pos:pos + 40].replace("\n", " ")
+    return AzosError(
+        message=f"Unterminated {what} at position {pos}: `{snippet}`",
+        topic="pgconnector",
+        frm="compile_named(sql)",
+        src=0
+    )
+
+
+@lru_cache(maxsize=512)
+def __compile_named(sql: str) -> tuple[str, tuple[str, ...]]:
+    """
+    Converts `$name` placeholders into asyncpg positional `$N` form. Returns the translated SQL
+    and the ordered parameter names. Same name used many times maps to the same `$N`.
+    The translated text is stable per source SQL so asyncpg per-connection prepared statement cache is reused.
+
+    Honors PostgreSQL lexical structure: `$name` is NOT a parameter inside of `-- line comments`,
+    nested `/* block /* comments */ */`, `'strings'` (`''` escape), `E'strings'` (backslash and `''` escapes),
+    `"quoted identifiers"` and `$tag$dollar quoted$tag$` bodies. Also `foo$name` (identifier char before `$`)
+    and positional `$1` are left as-is. Assumes `standard_conforming_strings=on` (PostgreSQL default).
+
+    :raises AzosError: on unterminated string, quoted identifier, dollar-quote or block comment.
+    """
+    names: list[str] = []
+    out: list[str] = []
+    pos = 0
+
+    while True:
+        m = _SQL_TOKEN.search(sql, pos)
+        if m is None:
+            out.append(sql[pos:])
+            break
+
+        out.append(sql[pos:m.start()])
+
+        if m.group("name") is not None:
+            name = m.group("name")
+            if name not in names:
+                names.append(name)
+            out.append(f"${names.index(name) + 1}")
+            pos = m.end()
+        elif m.group("bcomment") is not None:
+            depth, i = 1, m.end()
+            while depth:
+                e = _BLOCK_COMMENT_EDGE.search(sql, i)
+                if e is None:
+                    raise _unterminated(sql, m.start(), "block comment")
+                depth += 1 if e.group() == "/*" else -1
+                i = e.end()
+            out.append(sql[m.start():i])
+            pos = i
+        elif m.group("bad") is not None:
+            tok = m.group("bad")
+            what = "quoted identifier" if tok == '"' else "dollar-quoted string" if tok.endswith("$") else "string literal"
+            raise _unterminated(sql, m.start(), what)
+        else:  # skipped token, copy verbatim
+            out.append(m.group())
+            pos = m.end()
+
+    return "".join(out), tuple(names)
 
 
 def bind(sql: str, **params) -> tuple:
