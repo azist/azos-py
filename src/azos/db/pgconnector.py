@@ -32,7 +32,7 @@ CONFIG_SECTION = "pg-sql-chassis"
 _SQL_TOKEN = re.compile(
     r"""
     (?P<skip>
-        --[^\n]*                                              # line comment (to EOL or EOF)
+        --[^\r\n]*                                            # line comment (to CR/LF or EOF)
       | (?<![\w$])[eE]'[^'\\]*(?:(?:\\.|'')[^'\\]*)*'         # E'..' escape string: backslash-x and ''
       | '[^']*(?:''[^']*)*'                                   # standard string (also B'', X'', U&''): only ''
       | "[^"]*(?:""[^"]*)*"                                   # quoted identifier: only ""
@@ -125,7 +125,7 @@ def __compile_named(sql: str) -> tuple[str, tuple[str, ...]]:
     return "".join(out), tuple(names)
 
 
-def bind(sql: str, **params) -> tuple:
+def bind(sql: str, /, **params) -> tuple:
     """
     Binds named parameters to SQL with `$name` placeholders, returning a `(sql, *args)` tuple for asyncpg
     positional API: `await conn.execute(*bind(SQL, a=1, b=2))`. Extra params are ignored.

@@ -335,3 +335,14 @@ def test_bind_azos_error_not_double_wrapped_01():
         bind("select 'oops", a=1)
     assert "Unterminated" in str(ei.value)
     assert ei.value.__cause__ is None
+
+
+def test_bind_param_named_sql_01():
+    """A parameter may be named `sql` (SQL text argument is positional-only)"""
+    assert bind("select $sql", sql=5) == ("select $1", 5)
+
+
+def test_line_comment_ends_at_cr_01():
+    """Line comment ends at bare CR as well as LF, like PostgreSQL lexer"""
+    assert compile_named("select 1 -- c $x\r$a") == ("select 1 -- c $x\r$1", ("a",))
+    assert compile_named("select 1 -- c $x\r\n$a") == ("select 1 -- c $x\r\n$1", ("a",))
