@@ -130,9 +130,30 @@ def bind(sql: str, **params) -> tuple:
     Binds named parameters to SQL with `$name` placeholders, returning a `(sql, *args)` tuple for asyncpg
     positional API: `await conn.execute(*bind(SQL, a=1, b=2))`. Extra params are ignored.
 
-    :raises AzosError: if SQL references a parameter which is not supplied.
+    #### Strings and Comments - Ignored
+    This function is smart enough to ignore `$param` names in strings and comments.
+
+    #### Provides cache abuse protection:
+    you should never dynamically concatenate many different SQL statements
+    because it will exhaust cache and start generating CRITICAL log failures once cache gets saturated.
+    If you need SQL variability you CAN create a few SQL variations but not 100s of them as cache is capped at
+    SQL_CACHE_SIZE constant (512 entries).
+
+    :raises AzosError: if SQL can not be compiled (e.g. unterminated string/comment, not a string)
+        or if SQL references a parameter which is not supplied.
     """
-    text, names = __compile_named(sql)
+    try:
+        text, names = __compile_named(sql)
+    except AzosError:
+        raise
+    except Exception as e:
+        raise AzosError(
+            message=f"SQL compilation failed: {e.__class__.__name__}: {e}",
+            topic="pgconnector",
+            frm=f"bind(sql=`{str(sql)[:80]}`)",
+            src=0
+        ) from e
+
     try:
         return (text, *(params[n] for n in names))
     except KeyError as e:

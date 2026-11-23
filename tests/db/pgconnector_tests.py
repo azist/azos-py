@@ -318,3 +318,20 @@ def test_cache_alarm_static_sql_01(monkeypatch):
 
     assert calls == []
     compile_named.cache_clear()
+
+
+def test_bind_bad_sql_type_01():
+    """Non-string SQL is rethrown as AzosError with the original cause chained"""
+    for bad in (None, 123, ["select $a"]):
+        with pytest.raises(AzosError) as ei:
+            bind(bad, a=1)
+        assert "SQL compilation failed" in str(ei.value)
+        assert isinstance(ei.value.__cause__, Exception)
+
+
+def test_bind_azos_error_not_double_wrapped_01():
+    """AzosError raised by compilation passes through as is"""
+    with pytest.raises(AzosError) as ei:
+        bind("select 'oops", a=1)
+    assert "Unterminated" in str(ei.value)
+    assert ei.value.__cause__ is None
