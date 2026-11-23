@@ -139,12 +139,6 @@ def test_cache_stable_01():
     sql = "select $a, 'x $b'"
     assert compile_named(sql) is compile_named(sql)
 
-
-def test_original_still_available_01():
-    """The original naive implementation is preserved and demonstrates the old behavior"""
-    assert pgc._original_compile_named("select 'x $b'") == ("select 'x $1'", ("b",))
-
-
 # ---------- compile: errors ----------
 
 @pytest.mark.parametrize("sql", [
@@ -290,3 +284,37 @@ def test_realistic_01():
     assert sql.index("t.counter = $2") > 0
     assert sql.index("C.last_Name=$3") > 0
     assert [230,123,"Kutz"]==pars
+
+
+# ---------- cache effectiveness alarm ----------
+
+def test_cache_alarm_dynamic_sql_01(monkeypatch):
+    """Compiling more distinct SQL texts than SQL_CACHE_SIZE logs CRITICAL on every further compilation"""
+    calls = []
+    monkeypatch.setattr(pgc._LOG, "critical", lambda msg, *a, **k: calls.append(msg))
+    monkeypatch.setattr(pgc, "_sql_cache_compiles", 0)
+    compile_named.cache_clear()
+
+    extra = 10
+    for i in range(pgc.SQL_CACHE_SIZE + extra):
+        compile_named(f"select * from t where id = {i} and a = $a")
+
+    assert len(calls) == extra
+    assert "overused" in calls[0] and "dynamically" in calls[0]
+    compile_named.cache_clear()
+
+
+def test_cache_alarm_static_sql_01(monkeypatch):
+    """Up to SQL_CACHE_SIZE distinct statements, repeated, never alarm"""
+    calls = []
+    monkeypatch.setattr(pgc._LOG, "critical", lambda msg, *a, **k: calls.append(msg))
+    monkeypatch.setattr(pgc, "_sql_cache_compiles", 0)
+    compile_named.cache_clear()
+
+    stmts = [f"select {i}, $a" for i in range(pgc.SQL_CACHE_SIZE)]
+    for _ in range(3):
+        for s in stmts:
+            compile_named(s)
+
+    assert calls == []
+    compile_named.cache_clear()

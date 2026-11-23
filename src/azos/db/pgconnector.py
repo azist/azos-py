@@ -5,7 +5,6 @@ Copyright (C) 2011 - 2026 Azist, MIT License
 """
 
 from functools import lru_cache
-from os import name
 from typing import Callable, override
 import json
 import re
@@ -26,30 +25,6 @@ from azos.factoryutils import knownas
 
 
 CONFIG_SECTION = "pg-sql-chassis"
-
-_NAMED_PARAM = re.compile(r"\$([A-Za-z_][A-Za-z0-9_]*)")
-
-
-@lru_cache(maxsize=512)
-def _original_compile_named(sql: str) -> tuple[str, tuple[str, ...]]:
-    """
-    ORIGINAL naive implementation, kept for reference/fallback. It is NOT used by `bind()` because it
-    treats `$name` inside string literals and comments as parameters.
-
-    Converts `$name` placeholders into asyncpg positional `$N` form. Returns the translated SQL
-    and the ordered parameter names. Same name used many times maps to the same `$N`.
-    The translated text is stable per source SQL so asyncpg per-connection prepared statement cache is reused.
-    """
-    names: list[str] = []
-
-    def sub(m: re.Match) -> str:
-        name = m.group(1)
-        if name not in names:
-            names.append(name)
-        return f"${names.index(name) + 1}"
-
-    return _NAMED_PARAM.sub(sub, sql), tuple(names)
-
 
 # Tokenizer for PostgreSQL lexical structure. Skipped constructs are matched first (leftmost wins), so
 # a `$name` inside of them is never seen by the `name` alternative. Bodies use the unrolled-loop form
@@ -72,6 +47,12 @@ _SQL_TOKEN = re.compile(
 
 _BLOCK_COMMENT_EDGE = re.compile(r"/\*|\*/")
 
+_LOG = LogStrand("pgconnector")
+
+# Max number of distinct SQL texts kept in the compile cache. Compiling more texts than this over the process
+# lifetime means that SQL text is generated dynamically, which is an implementation error
+SQL_CACHE_SIZE = 512
+_sql_cache_compiles = 0
 
 def _unterminated(sql: str, pos: int, what: str) -> AzosError:
     snippet = sql[pos:pos + 40].replace("\n", " ")
@@ -83,7 +64,7 @@ def _unterminated(sql: str, pos: int, what: str) -> AzosError:
     )
 
 
-@lru_cache(maxsize=512)
+@lru_cache(maxsize=SQL_CACHE_SIZE)
 def __compile_named(sql: str) -> tuple[str, tuple[str, ...]]:
     """
     Converts `$name` placeholders into asyncpg positional `$N` form. Returns the translated SQL
@@ -97,6 +78,14 @@ def __compile_named(sql: str) -> tuple[str, tuple[str, ...]]:
 
     :raises AzosError: on unterminated string, quoted identifier, dollar-quote or block comment.
     """
+    # This body runs on cache MISS only
+    global _sql_cache_compiles
+
+    _sql_cache_compiles += 1
+
+    if _sql_cache_compiles > SQL_CACHE_SIZE:
+        _LOG.critical(f"SQL compile is overused: {_sql_cache_compiles} times. Who is generating SQLs dynamically?")
+
     names: list[str] = []
     out: list[str] = []
     pos = 0
