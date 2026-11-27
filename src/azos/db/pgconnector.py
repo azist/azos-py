@@ -5,7 +5,10 @@ Copyright (C) 2011 - 2026 Azist, MIT License
 """
 
 from functools import lru_cache
-from datetime import datetime
+import dataclasses
+from datetime import date, datetime, time
+from decimal import Decimal
+from uuid import UUID
 from typing import Any, Callable, override
 import json
 import re
@@ -125,6 +128,29 @@ def __compile_named(sql: str) -> tuple[str, tuple[str, ...]]:
             pos = m.end()
 
     return "".join(out), tuple(names)
+
+
+def _json_default(obj: Any) -> Any:
+    """`json.dumps(default=)` hook: handles dataclasses, Pydantic models, date/time, UUID and Decimal at any nesting depth"""
+    if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
+        return dataclasses.asdict(obj)
+    dump = getattr(obj, "model_dump", None)  # Pydantic v2 BaseModel
+    if callable(dump) and not isinstance(obj, type):
+        return dump(mode="json")
+    if isinstance(obj, (datetime, date, time)):
+        return obj.isoformat()
+    if isinstance(obj, (UUID, Decimal)):
+        return str(obj)
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
+
+def json_encode(value: Any) -> str:
+    """
+    Encodes a value into JSON text for PgSQL `json`/`jsonb` columns. In addition to the standard JSON types
+    supports dataclasses, Pydantic models, date/time (ISO 8601, tz offset kept), UUID and Decimal (as strings),
+    including when nested in dicts/lists.
+    """
+    return json.dumps(value, default=_json_default)
 
 
 class ParamValue:
@@ -443,7 +469,7 @@ class PgConnector(AppComponent):
         # Example: await conn.execute("SET search_path TO my_schema")
 
         # Register the codec for jsonb (and/or 'json') columns
-        await conn.set_type_codec("jsonb", encoder=json.dumps, decoder=json.loads, schema="pg_catalog")
+        await conn.set_type_codec("jsonb", encoder=json_encode, decoder=json.loads, schema="pg_catalog")
 
 
     async def _create_pool(self, name: str, pool_config: Descriptor) -> asyncpg.pool.Pool:

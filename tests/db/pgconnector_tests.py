@@ -9,7 +9,14 @@ import pytest
 import azos.db.pgconnector as pgc
 from datetime import datetime, timezone
 
-from azos.db.pgconnector import bind, bind_transformed, AsIs, ParamValue
+import json
+import uuid
+from dataclasses import dataclass
+from decimal import Decimal
+
+from pydantic import BaseModel
+
+from azos.db.pgconnector import json_encode, bind, bind_transformed, AsIs, ParamValue
 from azos.exceptions import AzosError
 
 compile_named = pgc.__compile_named
@@ -375,3 +382,49 @@ def test_bind_param_value_01():
 def test_bind_transformed_01():
     """Custom transform is applied to used params only"""
     assert bind_transformed("select $a, $b", lambda v: v * 2, a=1, b=2, c=3) == ("select $1, $2", 2, 4)
+
+
+@dataclass
+class _Dc:
+    a: int
+    when: datetime
+
+
+class _Pm(BaseModel):
+    a: int
+    when: datetime
+
+
+def test_json_encode_plain_01():
+    """Plain JSON types behave as json.dumps"""
+    assert json_encode({"a": [1, "x", None, True]}) == '{"a": [1, "x", null, true]}'
+
+
+def test_json_encode_dataclass_01():
+    """Dataclass top-level and nested, datetime as ISO"""
+    dt = datetime(2026, 1, 2, 3, 4, 5, tzinfo=timezone.utc)
+    exp = {"a": 1, "when": "2026-01-02T03:04:05+00:00"}
+    assert json.loads(json_encode(_Dc(1, dt))) == exp
+    assert json.loads(json_encode({"k": [_Dc(1, dt)]})) == {"k": [exp]}
+
+
+def test_json_encode_pydantic_01():
+    """Pydantic model top-level and nested"""
+    dt = datetime(2026, 1, 2, 3, 4, 5)
+    exp = {"a": 1, "when": "2026-01-02T03:04:05"}
+    assert json.loads(json_encode(_Pm(a=1, when=dt))) == exp
+    assert json.loads(json_encode({"k": _Pm(a=1, when=dt)})) == {"k": exp}
+
+
+def test_json_encode_uuid_decimal_01():
+    """UUID and Decimal become strings"""
+    u = uuid.UUID(int=5)
+    assert json.loads(json_encode({"u": u, "d": Decimal("1.50")})) == {"u": str(u), "d": "1.50"}
+
+
+def test_json_encode_unsupported_01():
+    """Unknown types and dataclass classes still raise TypeError"""
+    with pytest.raises(TypeError):
+        json_encode(object())
+    with pytest.raises(TypeError):
+        json_encode(_Dc)
