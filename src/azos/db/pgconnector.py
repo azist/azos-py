@@ -5,7 +5,8 @@ Copyright (C) 2011 - 2026 Azist, MIT License
 """
 
 from functools import lru_cache
-from typing import Callable, override
+from datetime import datetime
+from typing import Any, Callable, override
 import json
 import re
 import ast
@@ -22,6 +23,7 @@ from azos.chassis import AppChassis, AppComponent, ChassisDescriptorFactory, exp
 from azos.descriptor import Descriptor
 from azos.exceptions import AzosError
 from azos.factoryutils import knownas
+from azos.utils import unzone
 
 
 CONFIG_SECTION = "pg-sql-chassis"
@@ -125,10 +127,53 @@ def __compile_named(sql: str) -> tuple[str, tuple[str, ...]]:
     return "".join(out), tuple(names)
 
 
+class ParamValue:
+    """
+    Base for parameter value wrappers which control how a value is passed to PgSQL, e.g. to typecast it.
+    The binder reads the `value` property. Derive and override `value` to create converters.
+    """
+
+    def __init__(self, value: Any):
+        self._value = value
+
+    @property
+    def value(self) -> Any:
+        """The value to be bound as a query argument"""
+        return self._value
+
+
+class AsIs(ParamValue):
+    """Wraps a value which must be bound as-is, e.g. a tz-aware `datetime` for `timestamptz` column"""
+
+
+def default_param_transform(value: Any) -> Any:
+    """
+    Default parameter transform used by `bind()`: unwraps `ParamValue` (e.g. `AsIs(v)` yields `v` untouched)
+    and `unzone()`s all other `datetime` values (drops tzinfo keeping wall-clock time).
+    """
+    if isinstance(value, ParamValue):
+        return value.value
+    if isinstance(value, datetime):
+        return unzone(value)
+    return value
+
+
 def bind(sql: str, /, **params) -> tuple:
     """
     Binds named parameters to SQL with `$name` placeholders, returning a `(sql, *args)` tuple for asyncpg
     positional API: `await conn.execute(*bind(SQL, a=1, b=2))`. Extra params are ignored.
+    Parameter values are processed by `default_param_transform`: datetimes are un-zoned unless wrapped in `AsIs()`.
+    See `bind_transformed()` for custom value transforms.
+    """
+    return bind_transformed(sql, default_param_transform, **params)
+
+
+def bind_transformed(sql: str, transform: Callable[[Any], Any], /, **params) -> tuple:
+    """
+    Binds named parameters to SQL with `$name` placeholders, returning a `(sql, *args)` tuple for asyncpg
+    positional API: `await conn.execute(*bind_transformed(SQL, xform, a=1, b=2))`. Extra params are ignored.
+    Each referenced parameter value is passed through `transform(value)` before binding which allows to use
+    "wrapper" types (see `ParamValue`) to typecast values for PgSQL.
 
     #### Strings and Comments - Ignored
     This function is smart enough to ignore `$param` names in strings and comments.
@@ -155,7 +200,7 @@ def bind(sql: str, /, **params) -> tuple:
         ) from e
 
     try:
-        return (text, *(params[n] for n in names))
+        values = [params[n] for n in names]
     except KeyError as e:
         raise AzosError(
             message=f"SQL parameter `{e.args[0]}` was not supplied",
@@ -163,6 +208,8 @@ def bind(sql: str, /, **params) -> tuple:
             frm=f"bind(params=`{', '.join(params)}`)",
             src=0
         ) from e
+
+    return (text, *(transform(v) for v in values))
 
 
 class PgSqlCtreeChassisDescriptorFactory(ChassisDescriptorFactory):

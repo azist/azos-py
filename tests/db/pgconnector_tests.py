@@ -7,7 +7,9 @@ Copyright (C) 2011 - 2026 Azist, MIT License
 import pytest
 
 import azos.db.pgconnector as pgc
-from azos.db.pgconnector import bind
+from datetime import datetime, timezone
+
+from azos.db.pgconnector import bind, bind_transformed, AsIs, ParamValue
 from azos.exceptions import AzosError
 
 compile_named = pgc.__compile_named
@@ -346,3 +348,30 @@ def test_line_comment_ends_at_cr_01():
     """Line comment ends at bare CR as well as LF, like PostgreSQL lexer"""
     assert compile_named("select 1 -- c $x\r$a") == ("select 1 -- c $x\r$1", ("a",))
     assert compile_named("select 1 -- c $x\r\n$a") == ("select 1 -- c $x\r\n$1", ("a",))
+
+
+def test_bind_unzones_datetime_01():
+    """Default transform drops tzinfo from datetimes keeping wall-clock"""
+    dt = datetime(2026, 1, 2, 3, 4, 5, tzinfo=timezone.utc)
+    assert bind("select $d", d=dt) == ("select $1", datetime(2026, 1, 2, 3, 4, 5))
+
+
+def test_bind_asis_datetime_01():
+    """AsIs keeps datetime untouched"""
+    dt = datetime(2026, 1, 2, 3, 4, 5, tzinfo=timezone.utc)
+    r = bind("select $d", d=AsIs(dt))
+    assert r[1] is dt
+
+
+def test_bind_param_value_01():
+    """Any ParamValue is unwrapped by default transform"""
+    class Upper(ParamValue):
+        @property
+        def value(self):
+            return self._value.upper()
+    assert bind("select $a", a=Upper("x")) == ("select $1", "X")
+
+
+def test_bind_transformed_01():
+    """Custom transform is applied to used params only"""
+    assert bind_transformed("select $a, $b", lambda v: v * 2, a=1, b=2, c=3) == ("select $1, $2", 2, 4)
