@@ -326,7 +326,7 @@ def test_bind_bad_sql_type_01():
     """Non-string SQL is rethrown as AzosError with the original cause chained"""
     for bad in (None, 123, ["select $a"]):
         with pytest.raises(AzosError) as ei:
-            bind(bad, a=1)
+            bind(bad, a=1) # type: ignore
         assert "SQL compilation failed" in str(ei.value)
         assert isinstance(ei.value.__cause__, Exception)
 
