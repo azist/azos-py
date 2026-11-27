@@ -5,8 +5,11 @@ Copyright (C) 2011 - 2026 Azist, MIT License
 """
 
 from functools import lru_cache
-from os import name
-from typing import Callable, override
+import dataclasses
+from datetime import date, datetime, time
+from decimal import Decimal
+from uuid import UUID
+from typing import Any, Callable, override
 import json
 import re
 import ast
@@ -23,41 +26,207 @@ from azos.chassis import AppChassis, AppComponent, ChassisDescriptorFactory, exp
 from azos.descriptor import Descriptor
 from azos.exceptions import AzosError
 from azos.factoryutils import knownas
+from azos.utils import unzone
 
 
 CONFIG_SECTION = "pg-sql-chassis"
 
-_NAMED_PARAM = re.compile(r"\$([A-Za-z_][A-Za-z0-9_]*)")
+# Tokenizer for PostgreSQL lexical structure. Skipped constructs are matched first (leftmost wins), so
+# a `$name` inside of them is never seen by the `name` alternative. Bodies use the unrolled-loop form
+# `[^x]*(?:xx[^x]*)*` to avoid catastrophic backtracking on unterminated input.
+_SQL_TOKEN = re.compile(
+    r"""
+    (?P<skip>
+        --[^\r\n]*                                            # line comment (to CR/LF or EOF)
+      | (?<![\w$])[eE]'[^'\\]*(?:(?:\\.|'')[^'\\]*)*'         # E'..' escape string: backslash-x and ''
+      | '[^']*(?:''[^']*)*'                                   # standard string (also B'', X'', U&''): only ''
+      | "[^"]*(?:""[^"]*)*"                                   # quoted identifier: only ""
+      | (?<![\w$])(?P<dq>\$(?:[A-Za-z_]\w*)?\$).*?(?P=dq)     # dollar-quoted $tag$..$tag$ (tag optional)
+    )
+  | (?P<bcomment>/\*)                                         # block comment start, nesting handled by the loop
+  | (?P<bad>(?<![\w$])[eE]'|'|"|(?<![\w$])\$(?:[A-Za-z_]\w*)?\$)  # opener of an unterminated construct
+  | (?<![\w$])\$(?P<name>[A-Za-z_]\w*)                        # the actual named parameter
+    """,
+    re.VERBOSE | re.DOTALL,
+)
+
+_BLOCK_COMMENT_EDGE = re.compile(r"/\*|\*/")
+
+_LOG = LogStrand("pgconnector")
+
+# Max number of distinct SQL texts kept in the compile cache. Compiling more texts than this over the process
+# lifetime means that SQL text is generated dynamically, which is an implementation error
+SQL_CACHE_SIZE = 512
+_sql_cache_compiles = 0
+
+def _unterminated(sql: str, pos: int, what: str) -> AzosError:
+    snippet = sql[pos:pos + 40].replace("\n", " ")
+    return AzosError(
+        message=f"Unterminated {what} at position {pos}: `{snippet}`",
+        topic="pgconnector",
+        frm="compile_named(sql)",
+        src=0
+    )
 
 
-@lru_cache(maxsize=512)
+@lru_cache(maxsize=SQL_CACHE_SIZE)
 def __compile_named(sql: str) -> tuple[str, tuple[str, ...]]:
     """
     Converts `$name` placeholders into asyncpg positional `$N` form. Returns the translated SQL
     and the ordered parameter names. Same name used many times maps to the same `$N`.
     The translated text is stable per source SQL so asyncpg per-connection prepared statement cache is reused.
+
+    Honors PostgreSQL lexical structure: `$name` is NOT a parameter inside of `-- line comments`,
+    nested `/* block /* comments */ */`, `'strings'` (`''` escape), `E'strings'` (backslash and `''` escapes),
+    `"quoted identifiers"` and `$tag$dollar quoted$tag$` bodies. Also `foo$name` (identifier char before `$`)
+    and positional `$1` are left as-is. Assumes `standard_conforming_strings=on` (PostgreSQL default).
+
+    :raises AzosError: on unterminated string, quoted identifier, dollar-quote or block comment.
     """
+    # This body runs on cache MISS only
+    global _sql_cache_compiles
+
+    _sql_cache_compiles += 1
+
+    if _sql_cache_compiles > SQL_CACHE_SIZE:
+        _LOG.critical(f"SQL compile is overused: {_sql_cache_compiles} times. Who is generating SQLs dynamically?")
+
     names: list[str] = []
+    out: list[str] = []
+    pos = 0
 
-    def sub(m: re.Match) -> str:
-        name = m.group(1)
-        if name not in names:
-            names.append(name)
-        return f"${names.index(name) + 1}"
+    while True:
+        m = _SQL_TOKEN.search(sql, pos)
+        if m is None:
+            out.append(sql[pos:])
+            break
 
-    return _NAMED_PARAM.sub(sub, sql), tuple(names)
+        out.append(sql[pos:m.start()])
+
+        if m.group("name") is not None:
+            name = m.group("name")
+            if name not in names:
+                names.append(name)
+            out.append(f"${names.index(name) + 1}")
+            pos = m.end()
+        elif m.group("bcomment") is not None:
+            depth, i = 1, m.end()
+            while depth:
+                e = _BLOCK_COMMENT_EDGE.search(sql, i)
+                if e is None:
+                    raise _unterminated(sql, m.start(), "block comment")
+                depth += 1 if e.group() == "/*" else -1
+                i = e.end()
+            out.append(sql[m.start():i])
+            pos = i
+        elif m.group("bad") is not None:
+            tok = m.group("bad")
+            what = "quoted identifier" if tok == '"' else "dollar-quoted string" if tok.endswith("$") else "string literal"
+            raise _unterminated(sql, m.start(), what)
+        else:  # skipped token, copy verbatim
+            out.append(m.group())
+            pos = m.end()
+
+    return "".join(out), tuple(names)
 
 
-def bind(sql: str, **params) -> tuple:
+def _json_default(obj: Any) -> Any:
+    """`json.dumps(default=)` hook: handles dataclasses, Pydantic models, date/time, UUID and Decimal at any nesting depth"""
+    if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
+        return dataclasses.asdict(obj)
+    dump = getattr(obj, "model_dump", None)  # Pydantic v2 BaseModel
+    if callable(dump) and not isinstance(obj, type):
+        return dump(mode="json")
+    if isinstance(obj, (datetime, date, time)):
+        return obj.isoformat()
+    if isinstance(obj, (UUID, Decimal)):
+        return str(obj)
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
+
+def json_encode(value: Any) -> str:
+    """
+    Encodes a value into JSON text for PgSQL `json`/`jsonb` columns. In addition to the standard JSON types
+    supports dataclasses, Pydantic models, date/time (ISO 8601, tz offset kept), UUID and Decimal (as strings),
+    including when nested in dicts/lists.
+    """
+    return json.dumps(value, default=_json_default)
+
+
+class ParamValue:
+    """
+    Base for parameter value wrappers which control how a value is passed to PgSQL, e.g. to typecast it.
+    The binder reads the `value` property. Derive and override `value` to create converters.
+    """
+
+    def __init__(self, value: Any):
+        self._value = value
+
+    @property
+    def value(self) -> Any:
+        """The value to be bound as a query argument"""
+        return self._value
+
+
+class AsIs(ParamValue):
+    """Wraps a value which must be bound as-is, e.g. a tz-aware `datetime` for `timestamptz` column"""
+
+
+def default_param_transform(value: Any) -> Any:
+    """
+    Default parameter transform used by `bind()`: unwraps `ParamValue` (e.g. `AsIs(v)` yields `v` untouched)
+    and `unzone()`s all other `datetime` values (drops tzinfo keeping wall-clock time).
+    """
+    if isinstance(value, ParamValue):
+        return value.value
+    if isinstance(value, datetime):
+        return unzone(value)
+    return value
+
+
+def bind(sql: str, /, **params) -> tuple:
     """
     Binds named parameters to SQL with `$name` placeholders, returning a `(sql, *args)` tuple for asyncpg
     positional API: `await conn.execute(*bind(SQL, a=1, b=2))`. Extra params are ignored.
-
-    :raises AzosError: if SQL references a parameter which is not supplied.
+    Parameter values are processed by `default_param_transform`: datetimes are un-zoned unless wrapped in `AsIs()`.
+    See `bind_transformed()` for custom value transforms.
     """
-    text, names = __compile_named(sql)
+    return bind_transformed(sql, default_param_transform, **params)
+
+
+def bind_transformed(sql: str, transform: Callable[[Any], Any], /, **params) -> tuple:
+    """
+    Binds named parameters to SQL with `$name` placeholders, returning a `(sql, *args)` tuple for asyncpg
+    positional API: `await conn.execute(*bind_transformed(SQL, xform, a=1, b=2))`. Extra params are ignored.
+    Each referenced parameter value is passed through `transform(value)` before binding which allows to use
+    "wrapper" types (see `ParamValue`) to typecast values for PgSQL.
+
+    #### Strings and Comments - Ignored
+    This function is smart enough to ignore `$param` names in strings and comments.
+
+    #### Provides cache abuse protection:
+    you should never dynamically concatenate many different SQL statements
+    because it will exhaust cache and start generating CRITICAL log failures once cache gets saturated.
+    If you need SQL variability you CAN create a few SQL variations but not 100s of them as cache is capped at
+    SQL_CACHE_SIZE constant (512 entries).
+
+    :raises AzosError: if SQL can not be compiled (e.g. unterminated string/comment, not a string)
+        or if SQL references a parameter which is not supplied.
+    """
     try:
-        return (text, *(params[n] for n in names))
+        text, names = __compile_named(sql)
+    except AzosError:
+        raise
+    except Exception as e:
+        raise AzosError(
+            message=f"SQL compilation failed: {e.__class__.__name__}: {e}",
+            topic="pgconnector",
+            frm=f"bind(sql=`{str(sql)[:80]}`)",
+            src=0
+        ) from e
+
+    try:
+        values = [params[n] for n in names]
     except KeyError as e:
         raise AzosError(
             message=f"SQL parameter `{e.args[0]}` was not supplied",
@@ -65,6 +234,8 @@ def bind(sql: str, **params) -> tuple:
             frm=f"bind(params=`{', '.join(params)}`)",
             src=0
         ) from e
+
+    return (text, *(transform(v) for v in values))
 
 
 class PgSqlCtreeChassisDescriptorFactory(ChassisDescriptorFactory):
@@ -298,7 +469,7 @@ class PgConnector(AppComponent):
         # Example: await conn.execute("SET search_path TO my_schema")
 
         # Register the codec for jsonb (and/or 'json') columns
-        await conn.set_type_codec("jsonb", encoder=json.dumps, decoder=json.loads, schema="pg_catalog")
+        await conn.set_type_codec("jsonb", encoder=json_encode, decoder=json.loads, schema="pg_catalog")
 
 
     async def _create_pool(self, name: str, pool_config: Descriptor) -> asyncpg.pool.Pool:

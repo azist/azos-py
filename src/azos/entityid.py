@@ -132,6 +132,7 @@ class EntityId:
         return self.value
 
     def __repr__(self):
+        """Developer-oriented representation, e.g. EntityId(`car.vin@dealer::1A8987339HBz0909W874`)"""
         return f"EntityId(`{self.get_value()}`)"
 
     def __eq__(self, other: object) -> bool:
