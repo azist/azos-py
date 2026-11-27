@@ -106,6 +106,13 @@ def test_align_minutes(minutes, expected):
     assert align_minutes(datetime(2026, 3, 18, 9, 47, 33, 5), minutes) == expected
 
 
+def test_align_minutes_zero_returns_as_is():
+    """minutes=0 returns the datetime unchanged (no alignment, seconds/micros kept)"""
+    d = datetime(2026, 3, 18, 9, 47, 33, 5, tzinfo=EST)
+    assert align_minutes(d, 0) is d
+    assert align_minutes_null(None, 0) is None
+
+
 @pytest.mark.parametrize("fn,minute,expected_minute", [
     (align_hour, 0, 0), (align_hour, 59, 0),
     (align_30min, 0, 0), (align_30min, 29, 0), (align_30min, 30, 30), (align_30min, 59, 30),

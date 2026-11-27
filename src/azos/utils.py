@@ -1,5 +1,5 @@
 """
-Object-Oriented Programming bases and utilities for Azos framework.
+General purpose utilities for Azos framework.
 
 Copyright (C) 2020, 2026 Azist, MIT License
 
@@ -31,7 +31,10 @@ def align_minutes(dt: datetime, minutes: int) -> datetime:
     Aligns (rounds down) to the nearest preceding boundary of `minutes` within the hour, zeroing seconds and
     microseconds and keeping time zone info as-is, e.g. `minutes=15` turns 9:47:33 into 9:45:00.
     `minutes` must be a positive int, typically a divisor of 60 (use 60 to align to the hour).
+    `minutes=0` returns `dt` unchanged.
     """
+    if minutes == 0:
+        return dt
     return dt.replace(minute=dt.minute - dt.minute % minutes, second=0, microsecond=0)
 
 def align_minutes_null(dt: datetime | None, minutes: int) -> datetime | None:
@@ -76,7 +79,7 @@ def align_midnight(dt: datetime) -> datetime:
 
 def align_midnight_null(dt: datetime | None) -> datetime | None:
     """Null-tolerant `align_midnight()`: returns `None` for `None`."""
-    return None if dt is None else dt.replace(hour=0, minute=0, second=0, microsecond=0)
+    return None if dt is None else align_midnight(dt)
 
 def align_month_first(dt: datetime) -> datetime:
     """Returns the first day of the datetime's month at align_midnight (00:00:00.000000), keeping its time zone info as-is."""
@@ -84,7 +87,7 @@ def align_month_first(dt: datetime) -> datetime:
 
 def align_month_first_null(dt: datetime | None) -> datetime | None:
     """Null-tolerant `align_month_first()`: returns `None` for `None`."""
-    return None if dt is None else dt.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    return None if dt is None else align_month_first(dt)
 
 def align_sunday(dt: datetime) -> datetime:
     """Returns align_midnight of the Sunday that starts the datetime's week (the datetime's own day if it is a Sunday), keeping its time zone info as-is."""
