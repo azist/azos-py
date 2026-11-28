@@ -115,12 +115,6 @@ def test_generate_successive_counter():
         GDID8.now = original_now
 
 
-if __name__ == "__main__":
-    g = GDID8(123)
-    for i in range(10):
-        gdid = g.generate()
-        print(f"Generated GDID8: {gdid}  = {gdid:b} = {gdid.to_bytes(8, byteorder='big').hex('_')}")
-
 def test_get_shard_hash_authority_weaving():
     """Test that authority is woven into the first 4 bits of the shard hash."""
     timestamp = 0
