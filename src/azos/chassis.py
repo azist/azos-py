@@ -19,11 +19,12 @@ import platform
 from abc import abstractmethod
 from enum import Enum
 from typing import (Any, Protocol, Sequence, Type, Dict, List, Optional,
-                    Callable, Tuple, TypeVar, override, runtime_checkable, TYPE_CHECKING)
+                    Callable, Tuple, TypeVar, override, TYPE_CHECKING)
 from pathlib import Path
 from configparser import ConfigParser
 
 from azos.atom import encode as aencode
+from azos.exceptions import AzosError
 from azos.oop import DisposableObject
 from azos.stock_content import loader
 
@@ -65,7 +66,7 @@ PFX_STOCK_LEN = len(PFX_STOCK)
 """Length of the stock variable prefix, used for optimization when parsing var names"""
 
 
-class ConfigError(Exception):
+class ConfigError(AzosError):
     """Custom exception type for configuration errors"""
     pass
 
