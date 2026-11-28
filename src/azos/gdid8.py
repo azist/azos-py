@@ -64,10 +64,33 @@
 import datetime
 import time
 import threading
-import fcntl
+import os
+import sys
+import tempfile
 from typing import override
 
 from azos.chassis import AppChassis, AppComponent, ConfigError, expand_var_expressions as evars
+
+if sys.platform == "win32":
+    import msvcrt
+
+    def _try_lock(f) -> None:
+        """Takes a non-blocking exclusive lock on the first byte of the file; raises OSError if already locked"""
+        f.seek(0)
+        msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+
+    def _unlock(f) -> None:
+        f.seek(0)
+        msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+else:
+    import fcntl
+
+    def _try_lock(f) -> None:
+        """Takes a non-blocking exclusive lock on the file; raises OSError if already locked"""
+        fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+    def _unlock(f) -> None:
+        fcntl.flock(f, fcntl.LOCK_UN)
 
 
 class GDID8:
@@ -112,6 +135,9 @@ class GDID8:
         with GDID8._TIME_LOCK:
             while True:
                 result = int((time.time() - GDID8.EPOCH) * 1000)
+
+                if GDID8._LAST_NOW == 0:
+                    GDID8._LAST_NOW = result + (GDID8._CLOCK_DRIFT_ABORT_MS // 2)
 
                 # If the system clock was adjusted backwards, we wait until it catches up to the last known timestamp.
                 if result < GDID8._LAST_NOW:
@@ -269,6 +295,7 @@ class GDIDGenerator(AppComponent):
         """
         Initializes a new instance of the GDIDGenerator class.
         """
+        GDID8.now() # Pause to protect clock drift
         super().__init__(chassis, director)
 
         auth = evars(chassis.config.get("gdid","authority", fallback=None), chassis=chassis)
@@ -282,12 +309,14 @@ class GDIDGenerator(AppComponent):
 
         # place machine wide lock on the authority file to prevent multiple instances of this class with the same
         # authority on the same machine
-        self._lock_file = open(f"/tmp/azos_gdid8_authority_{self._authority}.lock", "w")
+        self._lock_file = open(
+            os.path.join(tempfile.gettempdir(), f"azos_gdid8_authority_{self._authority}.lock"), "a+")
         try:
             # Try to acquire an exclusive lock without blocking (LOCK_NB)
             # Do not drop
-            fcntl.flock(self._lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except IOError:
+            _try_lock(self._lock_file)
+        except OSError:
+            self._lock_file.close()
             raise RuntimeError(f"Another instance of GDIDGenerator with authority {self._authority} is already running on this machine.")
 
         self._lock = threading.Lock()
@@ -297,7 +326,7 @@ class GDIDGenerator(AppComponent):
     def _dispose(self) -> None:
         """Releases the lock file and closes it"""
         try:
-            fcntl.flock(self._lock_file, fcntl.LOCK_UN)
+            _unlock(self._lock_file)
             self._lock_file.close()
         finally:
             super()._dispose()

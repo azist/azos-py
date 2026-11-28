@@ -253,6 +253,9 @@ from azos.gdid8 import GDID8
 
 
 def test_trie_shard_router_gdid8_distribution(app):
+
+    GDID8.now() # Amortize the generator per-process pause at startup
+
     cfg = Descriptor(
         {
             "node_id": "root",
